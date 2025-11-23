@@ -1,36 +1,153 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Solar System Designer
+
+A visual editor for creating star systems with planets, moons, and asteroid belts. Designed for exporting JSON data to game engines.
+
+## Features
+
+- **Visual Canvas Preview** - Real-time rendering with react-konva, zoom/pan controls, orbital path visualization
+- **Hierarchical Tree Interface** - Collapsible tree for managing celestial body relationships
+- **Elite Dangerous Naming System** - Automatic ID generation (Sol 1, Sol 3 a, etc.)
+- **JSON Export** - Clean data export for game integration
+- **Dual Mode Architecture** - Local development mode or production ZIP bundles
+
+### Supported Object Types
+
+- Stars (primary and companion: A, B, C)
+- Planets (numbered: 1, 2, 3...)
+- Moons (lettered: a, b, c...)
+- Asteroid Belts
+- Stations
+
+## Tech Stack
+
+- Next.js 16 with App Router
+- React 19, TypeScript
+- Zustand + Immer for state management
+- react-konva for canvas rendering
+- Zod for validation
+- JSZip for bundle handling
+- Tailwind CSS + shadcn/ui
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- Yarn
+
+### Installation
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <repository-url>
+cd galaxymaker
+yarn install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+For local development mode, create `.env.local`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+NEXT_PUBLIC_LOCAL_MODE=true
+SPRITE_DIR=/path/to/your/sprites
+SYSTEMS_DIR=/path/to/your/systems
+```
 
-## Learn More
+### Development
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+yarn dev          # Start development server
+yarn build        # Production build
+yarn lint         # Run ESLint
+yarn test         # Run tests in watch mode
+yarn test:run     # Run tests once
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000) to view the designer.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Dual Mode Architecture
 
-## Deploy on Vercel
+### Local Mode (Development)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Set `NEXT_PUBLIC_LOCAL_MODE=true` in `.env.local`:
+- Auto-scans PNG files from `SPRITE_DIR`
+- Auto-scans JSON files from `SYSTEMS_DIR`
+- Saves exports directly as JSON files
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Production Mode
+
+For static hosting (no env vars set):
+- Load/save via browser File API
+- Uses ZIP bundles containing `system.json` + `sprites/` folder
+
+### ZIP Bundle Format
+
+```
+system-name.zip
+├── system.json
+└── sprites/
+    ├── yellow-star.png
+    ├── earth.png
+    └── luna.png
+```
+
+## Architecture
+
+### State Management (`src/stores/`)
+
+- **systemStore** - Solar system data (stars, planets, moons, asteroids)
+- **spriteStore** - Loaded sprites and sprite list
+- **uiStore** - UI state (selected object, camera position, zoom)
+
+### Core Types (`src/types/`)
+
+- `celestial.ts` - CelestialBody, Star, Planet, Moon, Station interfaces
+- `system.ts` - SolarSystem container type
+
+### Key Components
+
+- `Canvas.tsx` - Konva canvas preview
+- `HierarchyTree.tsx` - Tree navigation
+- `PropertyPanel.tsx` - Object property editor
+
+## Export Format
+
+```json
+{
+  "formatVersion": "1.0",
+  "systemId": "sol",
+  "systemName": "Sol",
+  "stars": [
+    {
+      "id": "Sol",
+      "name": "Sol",
+      "type": "star",
+      "sprite": "yellow-star.png",
+      "scale": 1.0,
+      "rotationSpeed": 0.1
+    }
+  ],
+  "planets": [
+    {
+      "id": "Sol 3",
+      "name": "Earth",
+      "type": "planet",
+      "sprite": "earth.png",
+      "parentStarId": "Sol",
+      "orbitDistance": 150,
+      "orbitSpeed": 1.0,
+      "moons": [
+        {
+          "id": "Sol 3 a",
+          "name": "Luna",
+          "type": "moon",
+          "sprite": "luna.png",
+          "orbitDistance": 25,
+          "orbitSpeed": 2.0
+        }
+      ]
+    }
+  ],
+  "asteroids": []
+}
+```
