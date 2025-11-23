@@ -13,14 +13,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import Image from 'next/image';
 
 // Property panel constants
 const SCALE_MIN = 0.1;
 const SCALE_MAX = 3;
 const SCALE_STEP = 0.1;
 
-const ORBIT_DISTANCE_MIN = 0;
-const ORBIT_DISTANCE_MAX_PLANET = 500;
+const ORBIT_DISTANCE_MIN = 10;
+const ORBIT_DISTANCE_MAX_PLANET = 10000;
 const ORBIT_DISTANCE_MAX_CHILD = 100;
 const ORBIT_DISTANCE_STEP = 1;
 
@@ -157,12 +158,13 @@ export function PropertyPanel() {
 
         {/* Sprite */}
         <div className="space-y-2">
-          <Label htmlFor="sprite">Sprite</Label>
           {spriteUrl && (
             <div className="flex justify-center rounded border bg-slate-900 p-2">
-              <img
+              <Image
                 src={spriteUrl}
                 alt={selectedObject.sprite}
+                width={64}
+                height={64}
                 className="h-16 w-16 object-contain"
               />
             </div>
