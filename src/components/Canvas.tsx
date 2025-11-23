@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Circle, Ring, Image as KonvaImage, Group } from 'react-konva';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
 import type { Planet, Moon, Station, Asteroid, Star } from '@/types';
@@ -13,35 +13,115 @@ interface LoadedImage {
 
 export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const animationRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
-  const wheelRAFRef = useRef<number>(0);
-  const pendingWheelRef = useRef<{ deltaY: number; pointer: { x: number; y: number } } | null>(null);
+  const anglesRef = useRef<Map<string, number>>(new Map());
+
+  const [frame, setFrame] = useState(0);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [images, setImages] = useState<Map<string, LoadedImage>>(new Map());
-  const [animatedAngles, setAnimatedAngles] = useState<Map<string, number>>(new Map());
 
-  const system = useSystemStore((state) => state.system);
-  const sprites = useSpriteStore((state) => state.sprites);
-  const {
-    selection,
-    select,
-    cameraPosition,
-    setCameraPosition,
-    cameraZoom: storeZoom,
-    setCameraZoom,
-    setComputedZoom,
-    showOrbits,
-    isAnimating,
-    focusTarget,
-    setFocusTarget
-  } = useUIStore();
+  // Get actions without subscribing (called once on mount)
+  const select = useUIStore.getState().select;
+  const setCameraPosition = useUIStore.getState().setCameraPosition;
+  const setCameraZoom = useUIStore.getState().setCameraZoom;
+  const setComputedZoom = useUIStore.getState().setComputedZoom;
+  const setFocusTarget = useUIStore.getState().setFocusTarget;
 
-  // Calculate auto-fit zoom based on system size
-  const autoFitZoom = useMemo(() => {
-    if (!system || dimensions.width === 0) return 1;
+  // 30fps render loop
+  useEffect(() => {
+    let frameId: number;
+    let lastFrame = 0;
 
-    // Find max orbit distance (including moons)
+    const tick = (time: number) => {
+      if (time - lastFrame >= 33) {
+        lastFrame = time;
+
+        // Update animation angles
+        const system = useSystemStore.getState().system;
+        const isAnimating = useUIStore.getState().isAnimating;
+
+        if (isAnimating && system) {
+          const deltaTime = lastTimeRef.current ? (time - lastTimeRef.current) / 1000 : 0;
+          lastTimeRef.current = time;
+
+          for (const planet of system.planets) {
+            const currentAngle = anglesRef.current.get(planet.id) ?? planet.orbitAngle;
+            anglesRef.current.set(planet.id, (currentAngle + planet.orbitSpeed * deltaTime * 10) % 360);
+
+            for (const moon of planet.moons) {
+              const moonAngle = anglesRef.current.get(moon.id) ?? moon.orbitAngle;
+              anglesRef.current.set(moon.id, (moonAngle + moon.orbitSpeed * deltaTime * 10) % 360);
+            }
+
+            for (const station of planet.stations) {
+              const stationAngle = anglesRef.current.get(station.id) ?? station.orbitAngle;
+              anglesRef.current.set(station.id, (stationAngle + station.orbitSpeed * deltaTime * 10) % 360);
+            }
+          }
+        } else {
+          lastTimeRef.current = time;
+        }
+
+        setFrame(f => f + 1);
+      }
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  // Resize handling
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight,
+        });
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Load sprite images
+  useEffect(() => {
+    const sprites = useSpriteStore.getState().sprites;
+    const loadImages = async () => {
+      const newImages = new Map<string, LoadedImage>();
+
+      for (const [filename, url] of sprites.entries()) {
+        const img = new window.Image();
+        img.crossOrigin = 'anonymous';
+
+        const loadedImage: LoadedImage = { image: img, loaded: false };
+        newImages.set(filename, loadedImage);
+
+        img.onload = () => {
+          loadedImage.loaded = true;
+          setImages(new Map(newImages));
+        };
+
+        img.src = url;
+      }
+
+      setImages(newImages);
+    };
+
+    loadImages();
+  }, [useSpriteStore.getState().sprites.size]);
+
+  // Read state directly each frame
+  const system = useSystemStore.getState().system;
+  const sprites = useSpriteStore.getState().sprites;
+  const { selection, cameraPosition, cameraZoom: storeZoom, showOrbits, isAnimating, focusTarget } = useUIStore.getState();
+
+  // Calculate auto-fit zoom
+  let autoFitZoom = 1;
+  if (system && dimensions.width > 0) {
     let maxDistance = 0;
     for (const planet of system.planets) {
       let planetMax = planet.orbitDistance;
@@ -51,33 +131,30 @@ export function Canvas() {
       maxDistance = Math.max(maxDistance, planetMax);
     }
 
-    if (maxDistance === 0) return 1;
+    if (maxDistance > 0) {
+      const padding = 50;
+      const availableSize = Math.min(dimensions.width, dimensions.height) - padding * 2;
+      const requiredSize = maxDistance * 2;
+      autoFitZoom = Math.min(1, availableSize / requiredSize);
+    }
+  }
 
-    // Add padding and calculate zoom to fit
-    const padding = 50;
-    const availableSize = Math.min(dimensions.width, dimensions.height) - padding * 2;
-    const requiredSize = maxDistance * 2; // diameter
-
-    return Math.min(1, availableSize / requiredSize);
-  }, [system, dimensions.width, dimensions.height]);
-
-  // Combine auto-fit base with manual zoom adjustment
   const cameraZoom = autoFitZoom * storeZoom;
 
-  // Update computed zoom in store so other components can use it
+  // Sync computed zoom to store
   useEffect(() => {
     setComputedZoom(cameraZoom);
   }, [cameraZoom, setComputedZoom]);
 
-  // Helper to get animated or base angle (uses state for rendering)
-  const getAngle = useCallback((id: string, baseAngle: number): number => {
+  // Helper to get animated or base angle
+  const getAngle = (id: string, baseAngle: number): number => {
     if (isAnimating) {
-      return animatedAngles.get(id) ?? baseAngle;
+      return anglesRef.current.get(id) ?? baseAngle;
     }
     return baseAngle;
-  }, [isAnimating, animatedAngles]);
+  };
 
-  // Handle focusTarget - follow target object as it orbits
+  // Handle focus target following
   useEffect(() => {
     if (!focusTarget || !system) return;
 
@@ -122,176 +199,13 @@ export function Canvas() {
           targetY = planetY + Math.sin(stationAngle) * station.orbitDistance;
         }
       }
-    } else if (focusTarget.type === 'asteroid') {
-      targetX = 0;
-      targetY = 0;
     }
 
-    const newCameraPos = {
+    setCameraPosition({
       x: -targetX * cameraZoom,
       y: -targetY * cameraZoom
-    };
-
-    setCameraPosition(newCameraPos);
-  }, [focusTarget, system, cameraZoom, setCameraPosition, getAngle, animatedAngles]);
-
-  // Wheel zoom handler - zooms towards pointer (throttled with RAF)
-  const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
-    e.evt.preventDefault();
-    const stage = e.target.getStage();
-    if (!stage) return;
-
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-
-    // Accumulate wheel delta for batching
-    if (pendingWheelRef.current) {
-      pendingWheelRef.current.deltaY += e.evt.deltaY;
-      pendingWheelRef.current.pointer = pointer;
-    } else {
-      pendingWheelRef.current = { deltaY: e.evt.deltaY, pointer };
-    }
-
-    // Schedule update if not already pending
-    if (!wheelRAFRef.current) {
-      wheelRAFRef.current = requestAnimationFrame(() => {
-        const pending = pendingWheelRef.current;
-        if (!pending) return;
-
-        const scaleBy = 1.02;
-        const zoomFactor = pending.deltaY > 0 ? 1 / scaleBy : scaleBy;
-        const newStoreZoom = storeZoom * zoomFactor;
-
-        const oldActualZoom = autoFitZoom * storeZoom;
-        const newActualZoom = autoFitZoom * newStoreZoom;
-
-        const centerX = dimensions.width / 2;
-        const centerY = dimensions.height / 2;
-
-        const worldX = (pending.pointer.x - cameraPosition.x - centerX) / oldActualZoom;
-        const worldY = (pending.pointer.y - cameraPosition.y - centerY) / oldActualZoom;
-
-        const newPos = {
-          x: pending.pointer.x - centerX - worldX * newActualZoom,
-          y: pending.pointer.y - centerY - worldY * newActualZoom,
-        };
-
-        setCameraZoom(newStoreZoom);
-        setCameraPosition(newPos);
-
-        pendingWheelRef.current = null;
-        wheelRAFRef.current = 0;
-      });
-    }
-  }, [storeZoom, autoFitZoom, dimensions.width, dimensions.height, cameraPosition, setCameraZoom, setCameraPosition]);
-
-  // Drag end handler for panning
-  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const stage = e.target.getStage();
-    if (stage) {
-      setCameraPosition({
-        x: stage.x(),
-        y: stage.y()
-      });
-      // Stop following when user pans
-      if (focusTarget) {
-        setFocusTarget(null);
-      }
-    }
-  };
-
-  // Resize handling
-  useEffect(() => {
-    const handleResize = () => {
-      if (containerRef.current) {
-        setDimensions({
-          width: containerRef.current.offsetWidth,
-          height: containerRef.current.offsetHeight,
-        });
-      }
-    };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Load sprite images
-  useEffect(() => {
-    const loadImages = async () => {
-      const newImages = new Map<string, LoadedImage>();
-
-      for (const [filename, url] of sprites.entries()) {
-        const img = new window.Image();
-        img.crossOrigin = 'anonymous';
-
-        const loadedImage: LoadedImage = { image: img, loaded: false };
-        newImages.set(filename, loadedImage);
-
-        img.onload = () => {
-          loadedImage.loaded = true;
-          setImages(new Map(newImages));
-        };
-
-        img.src = url;
-      }
-
-      setImages(newImages);
-    };
-
-    loadImages();
-  }, [sprites]);
-
-  // Animation loop
-  useEffect(() => {
-    if (!isAnimating || !system) {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      return;
-    }
-
-    const animate = (time: number) => {
-      if (!lastTimeRef.current) {
-        lastTimeRef.current = time;
-      }
-
-      const deltaTime = (time - lastTimeRef.current) / 1000; // seconds
-      lastTimeRef.current = time;
-
-      setAnimatedAngles((prev) => {
-        const next = new Map(prev);
-
-        for (const planet of system.planets) {
-          const currentAngle = next.get(planet.id) ?? planet.orbitAngle;
-          next.set(planet.id, (currentAngle + planet.orbitSpeed * deltaTime * 10) % 360);
-
-          for (const moon of planet.moons) {
-            const moonAngle = next.get(moon.id) ?? moon.orbitAngle;
-            next.set(moon.id, (moonAngle + moon.orbitSpeed * deltaTime * 10) % 360);
-          }
-
-          for (const station of planet.stations) {
-            const stationAngle = next.get(station.id) ?? station.orbitAngle;
-            next.set(station.id, (stationAngle + station.orbitSpeed * deltaTime * 10) % 360);
-          }
-        }
-
-        return next;
-      });
-
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    animationRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      lastTimeRef.current = 0;
-    };
-  }, [isAnimating, system]);
+    });
+  }, [frame, focusTarget, system, cameraZoom, setCameraPosition]);
 
   if (!system) {
     return (
@@ -306,6 +220,44 @@ export function Canvas() {
 
   const centerX = dimensions.width / 2;
   const centerY = dimensions.height / 2;
+
+  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    const scaleBy = 1.02;
+    const zoomFactor = e.evt.deltaY > 0 ? 1 / scaleBy : scaleBy;
+    const newStoreZoom = storeZoom * zoomFactor;
+
+    const oldActualZoom = autoFitZoom * storeZoom;
+    const newActualZoom = autoFitZoom * newStoreZoom;
+
+    const worldX = (pointer.x - cameraPosition.x - centerX) / oldActualZoom;
+    const worldY = (pointer.y - cameraPosition.y - centerY) / oldActualZoom;
+
+    setCameraZoom(newStoreZoom);
+    setCameraPosition({
+      x: pointer.x - centerX - worldX * newActualZoom,
+      y: pointer.y - centerY - worldY * newActualZoom,
+    });
+  };
+
+  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
+    const stage = e.target.getStage();
+    if (stage) {
+      setCameraPosition({
+        x: stage.x(),
+        y: stage.y()
+      });
+      if (focusTarget) {
+        setFocusTarget(null);
+      }
+    }
+  };
 
   const handleSelect = (type: 'star' | 'planet' | 'moon' | 'station' | 'asteroid', id: string, parentId?: string) => {
     select({ type, id, parentId });
@@ -359,7 +311,6 @@ export function Canvas() {
     const loadedImage = images.get(planet.sprite);
     const isSelected = selection?.type === 'planet' && selection.id === planet.id;
 
-    // Calculate orbital position
     const orbitAngle = getAngle(planet.id, planet.orbitAngle);
     const angle = (orbitAngle * Math.PI) / 180;
     const x = centerX + Math.cos(angle) * planet.orbitDistance * cameraZoom;
@@ -367,7 +318,6 @@ export function Canvas() {
 
     return (
       <Group key={planet.id}>
-        {/* Orbit path */}
         {showOrbits && (
           <Ring
             x={centerX}
@@ -378,7 +328,6 @@ export function Canvas() {
           />
         )}
 
-        {/* Planet */}
         <Group x={x} y={y}>
           {loadedImage?.loaded ? (
             <KonvaImage
@@ -412,10 +361,7 @@ export function Canvas() {
           )}
         </Group>
 
-        {/* Moons */}
         {planet.moons.map((moon) => renderMoon(moon, x, y))}
-
-        {/* Stations */}
         {planet.stations.map((station) => renderStation(station, x, y))}
       </Group>
     );
@@ -425,7 +371,6 @@ export function Canvas() {
     const loadedImage = images.get(moon.sprite);
     const isSelected = selection?.type === 'moon' && selection.id === moon.id;
 
-    // Calculate orbital position around planet
     const orbitAngle = getAngle(moon.id, moon.orbitAngle);
     const angle = (orbitAngle * Math.PI) / 180;
     const x = planetX + Math.cos(angle) * moon.orbitDistance * cameraZoom;
@@ -433,7 +378,6 @@ export function Canvas() {
 
     return (
       <Group key={moon.id}>
-        {/* Orbit path */}
         {showOrbits && (
           <Ring
             x={planetX}
@@ -444,7 +388,6 @@ export function Canvas() {
           />
         )}
 
-        {/* Moon */}
         <Group x={x} y={y}>
           {loadedImage?.loaded ? (
             <KonvaImage
@@ -552,18 +495,17 @@ export function Canvas() {
               fill="rgba(156, 163, 175, 0.15)"
             />
           )}
-          {/* Clickable area for asteroid belt */}
-        <Ring
-          x={centerX}
-          y={centerY}
-          innerRadius={asteroid.orbitDistance * cameraZoom - 5}
-          outerRadius={asteroid.orbitDistance * cameraZoom + 5}
-          fill={isSelected ? "rgba(59, 130, 246, 0.3)" : "transparent"}
-          onClick={() => handleSelect('asteroid', asteroid.id)}
-          onTap={() => handleSelect('asteroid', asteroid.id)}
-          onDblClick={() => handleFocus('asteroid', asteroid.id)}
-          onDblTap={() => handleFocus('asteroid', asteroid.id)}
-        />
+          <Ring
+            x={centerX}
+            y={centerY}
+            innerRadius={asteroid.orbitDistance * cameraZoom - 5}
+            outerRadius={asteroid.orbitDistance * cameraZoom + 5}
+            fill={isSelected ? "rgba(59, 130, 246, 0.3)" : "transparent"}
+            onClick={() => handleSelect('asteroid', asteroid.id)}
+            onTap={() => handleSelect('asteroid', asteroid.id)}
+            onDblClick={() => handleFocus('asteroid', asteroid.id)}
+            onDblTap={() => handleFocus('asteroid', asteroid.id)}
+          />
         </Group>
       );
     }
@@ -589,13 +531,8 @@ export function Canvas() {
         }}
       >
         <Layer>
-          {/* Render asteroid belts (behind everything) */}
           {system.asteroids.map(renderAsteroid)}
-
-          {/* Render stars */}
           {system.stars.map(renderStar)}
-
-          {/* Render planets with their moons and stations */}
           {system.planets.map((planet) => {
             const hasParentStar = system.stars.some((s) => s.id === planet.parentStarId);
             if (!hasParentStar) return null;

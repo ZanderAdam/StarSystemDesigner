@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -50,18 +51,9 @@ export function PropertyPanel() {
   const loadSpritesFromApi = useSpriteStore((state) => state.loadSpritesFromApi);
   const selection = useUIStore((state) => state.selection);
 
-  if (!selection || !system) {
-    return (
-      <Card className="h-full">
-        <CardHeader>
-          <CardTitle>Properties</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Select an object to edit its properties
-        </CardContent>
-      </Card>
-    );
-  }
+  // Local state for text fields to avoid store updates on every keystroke
+  const [localName, setLocalName] = useState('');
+  const [localDescription, setLocalDescription] = useState('');
 
   // Get selected object
   let selectedObject: {
@@ -79,18 +71,37 @@ export function PropertyPanel() {
     stationType?: string;
   } | null = null;
 
-  if (selection.type === 'star') {
-    selectedObject = system.stars.find((s) => s.id === selection.id) || null;
-  } else if (selection.type === 'planet') {
-    selectedObject = system.planets.find((p) => p.id === selection.id) || null;
-  } else if (selection.type === 'moon' && selection.parentId) {
-    const planet = system.planets.find((p) => p.id === selection.parentId);
+  if (selection?.type === 'star') {
+    selectedObject = system?.stars.find((s) => s.id === selection.id) || null;
+  } else if (selection?.type === 'planet') {
+    selectedObject = system?.planets.find((p) => p.id === selection.id) || null;
+  } else if (selection?.type === 'moon' && selection.parentId) {
+    const planet = system?.planets.find((p) => p.id === selection.parentId);
     selectedObject = planet?.moons.find((m) => m.id === selection.id) || null;
-  } else if (selection.type === 'station' && selection.parentId) {
-    const planet = system.planets.find((p) => p.id === selection.parentId);
+  } else if (selection?.type === 'station' && selection.parentId) {
+    const planet = system?.planets.find((p) => p.id === selection.parentId);
     selectedObject = planet?.stations.find((s) => s.id === selection.id) || null;
-  } else if (selection.type === 'asteroid') {
-    selectedObject = system.asteroids.find((a) => a.id === selection.id) || null;
+  } else if (selection?.type === 'asteroid') {
+    selectedObject = system?.asteroids.find((a) => a.id === selection.id) || null;
+  }
+
+  // Sync local state when selection changes
+  useEffect(() => {
+    setLocalName(selectedObject?.name ?? '');
+    setLocalDescription(selectedObject?.description ?? '');
+  }, [selectedObject?.id, selectedObject?.name, selectedObject?.description]);
+
+  if (!selection || !system) {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle>Properties</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Select an object to edit its properties
+        </CardContent>
+      </Card>
+    );
   }
 
   if (!selectedObject) {
@@ -143,8 +154,9 @@ export function PropertyPanel() {
           <Label htmlFor="name">Name</Label>
           <Input
             id="name"
-            value={selectedObject.name}
-            onChange={(e) => handleUpdate('name', e.target.value)}
+            value={localName}
+            onChange={(e) => setLocalName(e.target.value)}
+            onBlur={() => handleUpdate('name', localName)}
           />
         </div>
 
@@ -153,8 +165,9 @@ export function PropertyPanel() {
           <Label htmlFor="description">Description</Label>
           <Textarea
             id="description"
-            value={selectedObject.description}
-            onChange={(e) => handleUpdate('description', e.target.value)}
+            value={localDescription}
+            onChange={(e) => setLocalDescription(e.target.value)}
+            onBlur={() => handleUpdate('description', localDescription)}
             maxLength={DESCRIPTION_MAX_LENGTH}
             rows={3}
           />
