@@ -16,6 +16,8 @@ interface UIState {
   // Camera
   cameraPosition: Vector2;
   cameraZoom: number;
+  computedZoom: number; // Actual zoom used for rendering (autoFit * manual)
+  focusTarget: Selection | null; // Object to center view on
 
   // UI panels
   showOrbits: boolean;
@@ -35,6 +37,8 @@ interface UIActions {
   // Camera
   setCameraPosition: (position: Vector2) => void;
   setCameraZoom: (zoom: number) => void;
+  setComputedZoom: (zoom: number) => void;
+  setFocusTarget: (target: Selection | null) => void;
   resetCamera: () => void;
 
   // UI toggles
@@ -58,6 +62,8 @@ export const useUIStore = create<UIState & UIActions>()((set) => ({
   selection: null,
   cameraPosition: DEFAULT_CAMERA_POSITION,
   cameraZoom: DEFAULT_CAMERA_ZOOM,
+  computedZoom: DEFAULT_CAMERA_ZOOM,
+  focusTarget: null,
   showOrbits: true,
   isAnimating: true,
   isNewSystemDialogOpen: false,
@@ -71,6 +77,8 @@ export const useUIStore = create<UIState & UIActions>()((set) => ({
   // Camera actions
   setCameraPosition: (position) => set({ cameraPosition: position }),
   setCameraZoom: (zoom) => set({ cameraZoom: Math.max(0.1, Math.min(5, zoom)) }),
+  setComputedZoom: (zoom) => set({ computedZoom: zoom }),
+  setFocusTarget: (target) => set({ focusTarget: target }),
   resetCamera: () =>
     set({
       cameraPosition: DEFAULT_CAMERA_POSITION,

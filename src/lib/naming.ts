@@ -1,7 +1,3 @@
-/**
- * Elite Dangerous style naming system for celestial bodies
- */
-
 export class SystemNaming {
   /**
    * Generate star ID - primary star gets system name, companions get letters

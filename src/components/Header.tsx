@@ -12,6 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
+import { Orbit, Play, Pause, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { isLocalMode } from '@/lib/config';
 import { loadSystemFromZip } from '@/lib/zip-loader';
 import { saveSystemToZip, exportSystemAsJson } from '@/lib/zip-saver';
@@ -36,6 +37,13 @@ export function Header() {
     isNewSystemDialogOpen,
     openNewSystemDialog,
     closeNewSystemDialog,
+    showOrbits,
+    toggleOrbits,
+    isAnimating,
+    toggleAnimation,
+    cameraZoom,
+    setCameraZoom,
+    resetCamera,
   } = useUIStore();
 
   const handleNew = () => {
@@ -194,6 +202,52 @@ export function Header() {
             disabled={!system}
           >
             Export JSON
+          </Button>
+
+          <div className="mx-2 h-6 w-px bg-border" />
+
+          <Button
+            variant={showOrbits ? 'default' : 'outline'}
+            size="sm"
+            onClick={toggleOrbits}
+            title="Toggle Orbits"
+          >
+            <Orbit className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isAnimating ? 'default' : 'outline'}
+            size="sm"
+            onClick={toggleAnimation}
+            title={isAnimating ? 'Pause Animation' : 'Play Animation'}
+          >
+            {isAnimating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          </Button>
+
+          <div className="mx-2 h-6 w-px bg-border" />
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCameraZoom(cameraZoom * 1.2)}
+            title="Zoom In"
+          >
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCameraZoom(cameraZoom / 1.2)}
+            title="Zoom Out"
+          >
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetCamera}
+            title="Reset View"
+          >
+            <RotateCcw className="h-4 w-4" />
           </Button>
         </div>
       </header>
