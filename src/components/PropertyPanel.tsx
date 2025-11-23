@@ -13,6 +13,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import { Button } from '@/components/ui/button';
+import { RefreshCw } from 'lucide-react';
+import { isLocalMode } from '@/lib/config';
 import Image from 'next/image';
 
 // Property panel constants
@@ -44,6 +47,7 @@ export function PropertyPanel() {
   const updateAsteroid = useSystemStore((state) => state.updateAsteroid);
 
   const sprites = useSpriteStore((state) => state.sprites);
+  const loadSpritesFromApi = useSpriteStore((state) => state.loadSpritesFromApi);
   const selection = useUIStore((state) => state.selection);
 
   if (!selection || !system) {
@@ -169,21 +173,33 @@ export function PropertyPanel() {
               />
             </div>
           )}
-          <Select
-            value={selectedObject.sprite || ''}
-            onValueChange={(value) => handleUpdate('sprite', value)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select sprite" />
-            </SelectTrigger>
-            <SelectContent>
-              {spriteOptions.map((sprite) => (
-                <SelectItem key={sprite} value={sprite}>
-                  {sprite}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <Select
+              value={selectedObject.sprite || ''}
+              onValueChange={(value) => handleUpdate('sprite', value)}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="Select sprite" />
+              </SelectTrigger>
+              <SelectContent>
+                {spriteOptions.map((sprite) => (
+                  <SelectItem key={sprite} value={sprite}>
+                    {sprite}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isLocalMode() && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={loadSpritesFromApi}
+                title="Refresh Sprites"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Scale */}

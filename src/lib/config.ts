@@ -7,10 +7,12 @@ export const isLocalMode = (): boolean => {
 };
 
 export const getSpriteDirPath = (): string | null => {
+  console.log('SPRITE_DIR:', process.env.SPRITE_DIR);
   return process.env.SPRITE_DIR || null;
 };
 
 export const getSystemsDirPath = (): string | null => {
+  console.log('SYSTEMS_DIR:', process.env.SYSTEMS_DIR);
   return process.env.SYSTEMS_DIR || null;
 };
 

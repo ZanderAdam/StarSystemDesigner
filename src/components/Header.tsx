@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,7 +12,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
-import { Orbit, Play, Pause, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Orbit, Play, Pause, ZoomIn, ZoomOut, RotateCcw, RefreshCw } from 'lucide-react';
 import { isLocalMode } from '@/lib/config';
 import { loadSystemFromZip } from '@/lib/zip-loader';
 import { saveSystemToZip, exportSystemAsJson } from '@/lib/zip-saver';
@@ -45,6 +45,12 @@ export function Header() {
     setCameraZoom,
     resetCamera,
   } = useUIStore();
+
+  useEffect(() => {
+    if (isLocalMode()) {
+      loadSpritesFromApi();
+    }
+  }, [loadSpritesFromApi]);
 
   const handleNew = () => {
     if (isDirty) {
@@ -210,6 +216,17 @@ export function Header() {
           >
             Export JSON
           </Button>
+          {isLocalMode() && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadSpritesFromApi}
+              title="Refresh Sprites"
+              className="hidden md:inline-flex"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
 
           <div className="mx-1 hidden h-6 w-px bg-border md:mx-2 md:block" />
 
