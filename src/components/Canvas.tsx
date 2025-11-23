@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { Stage, Layer, Circle, Ring, Image as KonvaImage, Group } from 'react-konva';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
-import type { Star, Planet, Moon, Station, Asteroid } from '@/types';
+import type { Planet, Moon, Station, Asteroid, Star } from '@/types';
 import type Konva from 'konva';
 
 interface LoadedImage {
@@ -15,6 +15,8 @@ export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const wheelRAFRef = useRef<number>(0);
+  const pendingWheelRef = useRef<{ deltaY: number; pointer: { x: number; y: number } } | null>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [images, setImages] = useState<Map<string, LoadedImage>>(new Map());
   const [animatedAngles, setAnimatedAngles] = useState<Map<string, number>>(new Map());
@@ -36,7 +38,7 @@ export function Canvas() {
   } = useUIStore();
 
   // Calculate auto-fit zoom based on system size
-  const autoFitZoom = (() => {
+  const autoFitZoom = useMemo(() => {
     if (!system || dimensions.width === 0) return 1;
 
     // Find max orbit distance (including moons)
@@ -57,7 +59,7 @@ export function Canvas() {
     const requiredSize = maxDistance * 2; // diameter
 
     return Math.min(1, availableSize / requiredSize);
-  })();
+  }, [system, dimensions.width, dimensions.height]);
 
   // Combine auto-fit base with manual zoom adjustment
   const cameraZoom = autoFitZoom * storeZoom;
@@ -67,13 +69,13 @@ export function Canvas() {
     setComputedZoom(cameraZoom);
   }, [cameraZoom, setComputedZoom]);
 
-  // Helper to get animated or base angle
-  const getAngle = (id: string, baseAngle: number): number => {
+  // Helper to get animated or base angle (uses state for rendering)
+  const getAngle = useCallback((id: string, baseAngle: number): number => {
     if (isAnimating) {
       return animatedAngles.get(id) ?? baseAngle;
     }
     return baseAngle;
-  };
+  }, [isAnimating, animatedAngles]);
 
   // Handle focusTarget - follow target object as it orbits
   useEffect(() => {
@@ -131,38 +133,57 @@ export function Canvas() {
     };
 
     setCameraPosition(newCameraPos);
-  }, [focusTarget, system, cameraZoom, setCameraPosition, isAnimating, animatedAngles]);
+  }, [focusTarget, system, cameraZoom, setCameraPosition, getAngle, animatedAngles]);
 
-  // Wheel zoom handler - zooms towards pointer
-  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
+  // Wheel zoom handler - zooms towards pointer (throttled with RAF)
+  const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
     if (!stage) return;
 
-    const scaleBy = 1.02;
-    const newStoreZoom = e.evt.deltaY > 0 ? storeZoom / scaleBy : storeZoom * scaleBy;
-
-    // Get pointer position
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    // Use the actual rendered zoom (autoFit * store)
-    const oldActualZoom = autoFitZoom * storeZoom;
-    const newActualZoom = autoFitZoom * newStoreZoom;
+    // Accumulate wheel delta for batching
+    if (pendingWheelRef.current) {
+      pendingWheelRef.current.deltaY += e.evt.deltaY;
+      pendingWheelRef.current.pointer = pointer;
+    } else {
+      pendingWheelRef.current = { deltaY: e.evt.deltaY, pointer };
+    }
 
-    // Calculate world point under pointer (relative to center)
-    const worldX = (pointer.x - stage.x() - centerX) / oldActualZoom;
-    const worldY = (pointer.y - stage.y() - centerY) / oldActualZoom;
+    // Schedule update if not already pending
+    if (!wheelRAFRef.current) {
+      wheelRAFRef.current = requestAnimationFrame(() => {
+        const pending = pendingWheelRef.current;
+        if (!pending) return;
 
-    // Calculate new stage position to keep world point under pointer
-    const newPos = {
-      x: pointer.x - centerX - worldX * newActualZoom,
-      y: pointer.y - centerY - worldY * newActualZoom,
-    };
+        const scaleBy = 1.02;
+        const zoomFactor = pending.deltaY > 0 ? 1 / scaleBy : scaleBy;
+        const newStoreZoom = storeZoom * zoomFactor;
 
-    setCameraZoom(newStoreZoom);
-    setCameraPosition(newPos);
-  };
+        const oldActualZoom = autoFitZoom * storeZoom;
+        const newActualZoom = autoFitZoom * newStoreZoom;
+
+        const centerX = dimensions.width / 2;
+        const centerY = dimensions.height / 2;
+
+        const worldX = (pending.pointer.x - cameraPosition.x - centerX) / oldActualZoom;
+        const worldY = (pending.pointer.y - cameraPosition.y - centerY) / oldActualZoom;
+
+        const newPos = {
+          x: pending.pointer.x - centerX - worldX * newActualZoom,
+          y: pending.pointer.y - centerY - worldY * newActualZoom,
+        };
+
+        setCameraZoom(newStoreZoom);
+        setCameraPosition(newPos);
+
+        pendingWheelRef.current = null;
+        wheelRAFRef.current = 0;
+      });
+    }
+  }, [storeZoom, autoFitZoom, dimensions.width, dimensions.height, cameraPosition, setCameraZoom, setCameraPosition]);
 
   // Drag end handler for panning
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -241,18 +262,15 @@ export function Canvas() {
       setAnimatedAngles((prev) => {
         const next = new Map(prev);
 
-        // Update planet angles
         for (const planet of system.planets) {
           const currentAngle = next.get(planet.id) ?? planet.orbitAngle;
           next.set(planet.id, (currentAngle + planet.orbitSpeed * deltaTime * 10) % 360);
 
-          // Update moon angles
           for (const moon of planet.moons) {
             const moonAngle = next.get(moon.id) ?? moon.orbitAngle;
             next.set(moon.id, (moonAngle + moon.orbitSpeed * deltaTime * 10) % 360);
           }
 
-          // Update station angles
           for (const station of planet.stations) {
             const stationAngle = next.get(station.id) ?? station.orbitAngle;
             next.set(station.id, (stationAngle + station.orbitSpeed * deltaTime * 10) % 360);
@@ -337,7 +355,7 @@ export function Canvas() {
     );
   };
 
-  const renderPlanet = (planet: Planet, star: Star) => {
+  const renderPlanet = (planet: Planet) => {
     const loadedImage = images.get(planet.sprite);
     const isSelected = selection?.type === 'planet' && selection.id === planet.id;
 
@@ -520,7 +538,6 @@ export function Canvas() {
   };
 
   const renderAsteroid = (asteroid: Asteroid) => {
-    const loadedImage = images.get(asteroid.sprite);
     const isSelected = selection?.type === 'asteroid' && selection.id === asteroid.id;
 
     if (asteroid.orbitDistance) {
@@ -580,9 +597,9 @@ export function Canvas() {
 
           {/* Render planets with their moons and stations */}
           {system.planets.map((planet) => {
-            const star = system.stars.find((s) => s.id === planet.parentStarId);
-            if (!star) return null;
-            return renderPlanet(planet, star);
+            const hasParentStar = system.stars.some((s) => s.id === planet.parentStarId);
+            if (!hasParentStar) return null;
+            return renderPlanet(planet);
           })}
         </Layer>
       </Stage>
