@@ -168,22 +168,20 @@ export function Header() {
     <>
       <header className="flex h-14 items-center justify-between border-b bg-background px-4">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold">Solar System Designer</h1>
+          <h1 className="text-lg font-semibold">
+            <span className="hidden sm:inline">Solar System Designer</span>
+            <span className="sm:hidden">SSD</span>
+          </h1>
           {system && (
             <span className="text-sm text-muted-foreground">
-              - {system.name}
+              <span className="hidden sm:inline">- </span>{system.name}
               {isDirty && '*'}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleNew}>
-            New
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleLoadSol}>
-            Load Sol
-          </Button>
+        <div className="flex items-center gap-1 md:gap-2">
+          {/* Essential buttons - always visible */}
           <Button variant="outline" size="sm" onClick={handleLoad}>
             Load
           </Button>
@@ -195,22 +193,33 @@ export function Header() {
           >
             Save
           </Button>
+
+          {/* Secondary buttons - hidden on mobile */}
+          <Button variant="outline" size="sm" onClick={handleNew} className="hidden md:inline-flex">
+            New
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleLoadSol} className="hidden md:inline-flex">
+            Load Sol
+          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportJson}
             disabled={!system}
+            className="hidden md:inline-flex"
           >
             Export JSON
           </Button>
 
-          <div className="mx-2 h-6 w-px bg-border" />
+          <div className="mx-1 hidden h-6 w-px bg-border md:mx-2 md:block" />
 
+          {/* View controls - hidden on mobile */}
           <Button
             variant={showOrbits ? 'default' : 'outline'}
             size="sm"
             onClick={toggleOrbits}
             title="Toggle Orbits"
+            className="hidden md:inline-flex"
           >
             <Orbit className="h-4 w-4" />
           </Button>
@@ -219,17 +228,20 @@ export function Header() {
             size="sm"
             onClick={toggleAnimation}
             title={isAnimating ? 'Pause Animation' : 'Play Animation'}
+            className="hidden md:inline-flex"
           >
             {isAnimating ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </Button>
 
-          <div className="mx-2 h-6 w-px bg-border" />
+          <div className="mx-2 hidden h-6 w-px bg-border md:block" />
 
+          {/* Zoom controls - hidden on mobile */}
           <Button
             variant="outline"
             size="sm"
             onClick={() => setCameraZoom(cameraZoom * 1.2)}
             title="Zoom In"
+            className="hidden md:inline-flex"
           >
             <ZoomIn className="h-4 w-4" />
           </Button>
@@ -238,6 +250,7 @@ export function Header() {
             size="sm"
             onClick={() => setCameraZoom(cameraZoom / 1.2)}
             title="Zoom Out"
+            className="hidden md:inline-flex"
           >
             <ZoomOut className="h-4 w-4" />
           </Button>
@@ -246,6 +259,7 @@ export function Header() {
             size="sm"
             onClick={resetCamera}
             title="Reset View"
+            className="hidden md:inline-flex"
           >
             <RotateCcw className="h-4 w-4" />
           </Button>

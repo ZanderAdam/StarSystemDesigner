@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Vector2 } from '@/types';
 
 type SelectionType = 'star' | 'planet' | 'moon' | 'station' | 'asteroid';
+type MobileTab = 'editor' | 'hierarchy';
 
 interface Selection {
   type: SelectionType;
@@ -27,6 +28,9 @@ interface UIState {
   isNewSystemDialogOpen: boolean;
   isSaveDialogOpen: boolean;
   isLoadDialogOpen: boolean;
+
+  // Mobile
+  activeTab: MobileTab;
 }
 
 interface UIActions {
@@ -52,6 +56,9 @@ interface UIActions {
   closeSaveDialog: () => void;
   openLoadDialog: () => void;
   closeLoadDialog: () => void;
+
+  // Mobile
+  setActiveTab: (tab: MobileTab) => void;
 }
 
 const DEFAULT_CAMERA_POSITION: Vector2 = { x: 0, y: 0 };
@@ -69,6 +76,7 @@ export const useUIStore = create<UIState & UIActions>()((set) => ({
   isNewSystemDialogOpen: false,
   isSaveDialogOpen: false,
   isLoadDialogOpen: false,
+  activeTab: 'editor',
 
   // Selection actions
   select: (selection) => set({ selection }),
@@ -96,4 +104,7 @@ export const useUIStore = create<UIState & UIActions>()((set) => ({
   closeSaveDialog: () => set({ isSaveDialogOpen: false }),
   openLoadDialog: () => set({ isLoadDialogOpen: true }),
   closeLoadDialog: () => set({ isLoadDialogOpen: false }),
+
+  // Mobile actions
+  setActiveTab: (tab) => set({ activeTab: tab }),
 }));
