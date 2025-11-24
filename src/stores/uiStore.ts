@@ -63,6 +63,8 @@ interface UIActions {
 
 const DEFAULT_CAMERA_POSITION: Vector2 = { x: 0, y: 0 };
 const DEFAULT_CAMERA_ZOOM = 1;
+const MIN_CAMERA_ZOOM = 0.1;
+const MAX_CAMERA_ZOOM = 100;
 
 export const useUIStore = create<UIState & UIActions>()((set) => ({
   // Initial state
@@ -84,7 +86,7 @@ export const useUIStore = create<UIState & UIActions>()((set) => ({
 
   // Camera actions
   setCameraPosition: (position) => set({ cameraPosition: position }),
-  setCameraZoom: (zoom) => set({ cameraZoom: Math.max(0.1, Math.min(5, zoom)) }),
+  setCameraZoom: (zoom) => set({ cameraZoom: Math.max(MIN_CAMERA_ZOOM, Math.min(MAX_CAMERA_ZOOM, zoom)) }),
   setComputedZoom: (zoom) => set({ computedZoom: zoom }),
   setFocusTarget: (target) => set({ focusTarget: target }),
   resetCamera: () =>

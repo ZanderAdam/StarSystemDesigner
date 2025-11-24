@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Stage, Layer, Circle, Ring, Image as KonvaImage, Group } from 'react-konva';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
 import type { CelestialBody } from '@/types';
-import type Konva from 'konva';
+import Konva from 'konva';
+
+Konva.hitOnDragEnabled = true;
 
 const FRAME_INTERVAL_MS = 33;
 const ORBIT_SPEED_MULTIPLIER = 10;
-const ZOOM_SCALE_FACTOR = 1.02;
+const ZOOM_SCALE_FACTOR = 1.1;
 const MAX_AUTO_FIT_ZOOM = 1;
 const CANVAS_PADDING = 50;
 
@@ -49,6 +51,9 @@ export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTimeRef = useRef<number>(0);
   const anglesRef = useRef<Map<string, number>>(new Map());
+  const lastCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const lastDistRef = useRef<number>(0);
+  const dragStoppedRef = useRef<boolean>(false);
 
   const [frame, setFrame] = useState(0);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -275,6 +280,68 @@ export function Canvas() {
     }
   }, [setCameraPosition, setFocusTarget]);
 
+  const handleTouchMove = useCallback((e: Konva.KonvaEventObject<TouchEvent>) => {
+    e.evt.preventDefault();
+    const touch1 = e.evt.touches[0];
+    const touch2 = e.evt.touches[1];
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    if (touch1 && !touch2 && !stage.isDragging() && dragStoppedRef.current) {
+      stage.startDrag();
+      dragStoppedRef.current = false;
+    }
+
+    if (touch1 && touch2) {
+      if (stage.isDragging()) {
+        dragStoppedRef.current = true;
+        stage.stopDrag();
+      }
+
+      const rect = stage.container().getBoundingClientRect();
+      const p1 = { x: touch1.clientX - rect.left, y: touch1.clientY - rect.top };
+      const p2 = { x: touch2.clientX - rect.left, y: touch2.clientY - rect.top };
+
+      const newCenter = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+
+      if (!lastCenterRef.current) {
+        lastCenterRef.current = newCenter;
+        lastDistRef.current = dist;
+        return;
+      }
+
+      const { cameraPosition, cameraZoom: currentStoreZoom } = useUIStore.getState();
+      const oldActualZoom = autoFitZoom * currentStoreZoom;
+
+      const pointTo = {
+        x: (newCenter.x - cameraPosition.x - centerX) / oldActualZoom,
+        y: (newCenter.y - cameraPosition.y - centerY) / oldActualZoom,
+      };
+
+      const scale = dist / lastDistRef.current;
+      const newStoreZoom = currentStoreZoom * scale;
+      const newActualZoom = autoFitZoom * newStoreZoom;
+
+      const dx = newCenter.x - lastCenterRef.current.x;
+      const dy = newCenter.y - lastCenterRef.current.y;
+
+      setCameraZoom(newStoreZoom);
+      setCameraPosition({
+        x: newCenter.x - centerX - pointTo.x * newActualZoom + dx,
+        y: newCenter.y - centerY - pointTo.y * newActualZoom + dy,
+      });
+
+      lastDistRef.current = dist;
+      lastCenterRef.current = newCenter;
+    }
+  }, [autoFitZoom, centerX, centerY, setCameraZoom, setCameraPosition]);
+
+  const handleTouchEnd = useCallback(() => {
+    lastDistRef.current = 0;
+    lastCenterRef.current = null;
+  }, []);
+
   const handleSelect = useCallback((body: CelestialBody) => {
     select({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
   }, [select]);
@@ -400,6 +467,8 @@ export function Canvas() {
         y={cameraPosition.y}
         onWheel={handleWheel}
         onDragEnd={handleDragEnd}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onClick={(e) => {
           if (e.target === e.target.getStage()) {
             select(null);
