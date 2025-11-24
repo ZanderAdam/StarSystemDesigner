@@ -4,6 +4,8 @@ A visual editor for creating star systems with planets, moons, and asteroid belt
 
 This was vibe coded, bugs are inevitable.
 
+https://star-system-designer.vercel.app/
+
 ## Features
 
 - **Visual Canvas Preview** - Real-time rendering with react-konva, zoom/pan controls, orbital path visualization
