@@ -211,7 +211,7 @@ export function HierarchyTree() {
               <span className="flex-1 truncate text-sm">{label}</span>
               {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
             </div>
-            <div className="hidden gap-0.5 group-hover:flex">
+            <div className="flex gap-0.5">
               {actions}
               {onDelete && (
                 <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:text-destructive" onClick={onDelete}>
@@ -234,7 +234,7 @@ export function HierarchyTree() {
         <Icon className="h-4 w-4 shrink-0" />
         <span className="flex-1 truncate text-sm">{label}</span>
         {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
-        <div className="hidden gap-0.5 group-hover:flex">
+        <div className="flex gap-0.5">
           {actions}
           {onDelete && (
             <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:text-destructive" onClick={onDelete}>

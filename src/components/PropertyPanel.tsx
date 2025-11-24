@@ -41,8 +41,13 @@ const DESCRIPTION_MAX_LENGTH = 500;
 
 export function PropertyPanel() {
   const system = useSystemStore((state) => state.system);
+  // Subscribe to rootBodies to trigger re-renders when tree updates
+  const rootBodies = useSystemStore((state) => state.rootBodies);
   const findBody = useSystemStore((state) => state.findBody);
   const updateBody = useSystemStore((state) => state.updateBody);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  void rootBodies; // Used only to trigger re-renders
 
   const sprites = useSpriteStore((state) => state.sprites);
   const loadSpritesFromApi = useSpriteStore((state) => state.loadSpritesFromApi);
@@ -238,8 +243,8 @@ export function PropertyPanel() {
           </div>
         )}
 
-        {/* Orbital properties for planets, moons, and stations */}
-        {(selection.type === 'planet' || selection.type === 'moon' || selection.type === 'station') && (
+        {/* Orbital properties for planets, moons, stations, and asteroids */}
+        {(selection.type === 'planet' || selection.type === 'moon' || selection.type === 'station' || selection.type === 'asteroid') && (
           <>
             <div className="space-y-2">
               <Label htmlFor="orbitDistance">Orbit Distance</Label>
@@ -248,7 +253,7 @@ export function PropertyPanel() {
                   value={[selectedObject.orbitDistance ?? 0]}
                   onValueChange={([value]) => handleUpdate('orbitDistance', value)}
                   min={ORBIT_DISTANCE_MIN}
-                  max={selection.type === 'planet' ? ORBIT_DISTANCE_MAX_PLANET : ORBIT_DISTANCE_MAX_CHILD}
+                  max={selection.type === 'planet' || selection.type === 'asteroid' ? ORBIT_DISTANCE_MAX_PLANET : ORBIT_DISTANCE_MAX_CHILD}
                   step={ORBIT_DISTANCE_STEP}
                   className="flex-1"
                 />
