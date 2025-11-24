@@ -28,6 +28,7 @@ const JsonFileSchema = z.object({
 
 export function Header() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const spriteInputRef = useRef<HTMLInputElement>(null);
   const [newSystemName, setNewSystemName] = useState('');
 
   const system = useSystemStore((state) => state.system);
@@ -40,6 +41,7 @@ export function Header() {
   const sprites = useSpriteStore((state) => state.sprites);
   const loadSpritesFromApi = useSpriteStore((state) => state.loadSpritesFromApi);
   const loadSpritesFromZip = useSpriteStore((state) => state.loadSpritesFromZip);
+  const addSprites = useSpriteStore((state) => state.addSprites);
 
   const {
     isNewSystemDialogOpen,
@@ -187,6 +189,24 @@ export function Header() {
     URL.revokeObjectURL(url);
   };
 
+  const handleImportSprites = () => {
+    spriteInputRef.current?.click();
+  };
+
+  const handleSpriteFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const newSprites = new Map<string, string>();
+    for (const file of files) {
+      const url = URL.createObjectURL(file);
+      newSprites.set(file.name, url);
+    }
+    addSprites(newSprites);
+
+    event.target.value = '';
+  };
+
   return (
     <>
       <header className="flex h-14 items-center justify-between border-b bg-background px-4">
@@ -224,15 +244,26 @@ export function Header() {
           <Button variant="outline" size="sm" onClick={handleLoadSol} className="hidden md:inline-flex">
             Load Sol
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportJson}
-            disabled={!system}
-            className="hidden md:inline-flex"
-          >
-            Export JSON
-          </Button>
+          {isLocalMode() ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportJson}
+              disabled={!system}
+              className="hidden md:inline-flex"
+            >
+              Export JSON
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleImportSprites}
+              className="hidden md:inline-flex"
+            >
+              Import Sprites
+            </Button>
+          )}
           {isLocalMode() && (
             <Button
               variant="outline"
@@ -306,6 +337,14 @@ export function Header() {
         type="file"
         accept=".json,.zip"
         onChange={handleFileSelect}
+        className="hidden"
+      />
+      <input
+        ref={spriteInputRef}
+        type="file"
+        accept=".png"
+        multiple
+        onChange={handleSpriteFileSelect}
         className="hidden"
       />
 

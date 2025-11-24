@@ -155,10 +155,10 @@ export function Canvas() {
     loadImages();
 
     // Subscribe to sprite changes
-    let prevSize = useSpriteStore.getState().sprites.size;
+    let prevSprites = useSpriteStore.getState().sprites;
     const unsubscribe = useSpriteStore.subscribe((state) => {
-      if (state.sprites.size !== prevSize) {
-        prevSize = state.sprites.size;
+      if (state.sprites !== prevSprites) {
+        prevSprites = state.sprites;
         loadImages();
       }
     });

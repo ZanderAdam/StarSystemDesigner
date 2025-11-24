@@ -9,6 +9,7 @@ interface SpriteState {
 interface SpriteActions {
   loadSpritesFromApi: () => Promise<void>;
   loadSpritesFromZip: (sprites: Map<string, string>) => void;
+  addSprites: (newSprites: Map<string, string>) => void;
   clearSprites: () => void;
   getSpriteUrl: (filename: string) => string | undefined;
 }
@@ -55,6 +56,15 @@ export const useSpriteStore = create<SpriteState & SpriteActions>()((set, get) =
     }
 
     set({ sprites, isLoading: false, error: null });
+  },
+
+  addSprites: (newSprites: Map<string, string>) => {
+    const currentSprites = get().sprites;
+    const merged = new Map(currentSprites);
+    for (const [key, value] of newSprites) {
+      merged.set(key, value);
+    }
+    set({ sprites: merged, error: null });
   },
 
   clearSprites: () => {
