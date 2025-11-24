@@ -49,11 +49,13 @@ function getVisual(body: CelestialBody, prop: keyof typeof defaultVisuals.star):
  */
 export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<Konva.Stage>(null);
   const lastTimeRef = useRef<number>(0);
   const anglesRef = useRef<Map<string, number>>(new Map());
   const lastCenterRef = useRef<{ x: number; y: number } | null>(null);
   const lastDistRef = useRef<number>(0);
   const dragStoppedRef = useRef<boolean>(false);
+  const lastFocusTargetRef = useRef<string | null>(null);
 
   const [frame, setFrame] = useState(0);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -217,7 +219,17 @@ export function Canvas() {
 
   // Handle focus target
   useEffect(() => {
-    if (!focusTarget) return;
+    if (!focusTarget) {
+      lastFocusTargetRef.current = null;
+      // Sync store with stage position when focus ends
+      if (stageRef.current) {
+        setCameraPosition({
+          x: stageRef.current.x(),
+          y: stageRef.current.y()
+        });
+      }
+      return;
+    }
 
     const bodies = useSystemStore.getState().rootBodies;
     if (bodies.length === 0) return;
@@ -241,10 +253,14 @@ export function Canvas() {
     };
 
     const pos = calcPos(targetBody);
-    setCameraPosition({
+    const newPos = {
       x: -pos.x * cameraZoom,
       y: -pos.y * cameraZoom
-    });
+    };
+    // Only use imperative update when focused - avoids conflict with React props
+    if (stageRef.current) {
+      stageRef.current.position(newPos);
+    }
   }, [frame, focusTarget, cameraZoom, setCameraPosition, getAngle]);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -460,6 +476,7 @@ export function Canvas() {
   return (
     <div ref={containerRef} className="h-full w-full bg-slate-900">
       <Stage
+        ref={stageRef}
         width={dimensions.width}
         height={dimensions.height}
         draggable

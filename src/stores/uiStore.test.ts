@@ -49,8 +49,8 @@ describe('uiStore', () => {
       setCameraZoom(0.05); // below minimum
       expect(useUIStore.getState().cameraZoom).toBe(0.1);
 
-      setCameraZoom(10); // above maximum
-      expect(useUIStore.getState().cameraZoom).toBe(5);
+      setCameraZoom(150); // above maximum
+      expect(useUIStore.getState().cameraZoom).toBe(100);
     });
 
     it('should reset camera', () => {
