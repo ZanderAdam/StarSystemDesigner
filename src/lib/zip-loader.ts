@@ -1,10 +1,18 @@
 import JSZip from 'jszip';
-import { SolarSystemSchema, type SolarSystem } from '@/types';
+import { SolarSystemSchema, CelestialBodySchema, type SolarSystem, type CelestialBody } from '@/types';
+import { z } from 'zod';
 
 export interface LoadedSystem {
   system: SolarSystem;
+  rootBodies: CelestialBody[];
   sprites: Map<string, string>; // filename -> blob URL
 }
+
+// Schema for the ZIP file format
+const ZipFileSchema = z.object({
+  system: SolarSystemSchema,
+  rootBodies: z.array(CelestialBodySchema),
+});
 
 /**
  * Load a system from a ZIP file (production mode)
@@ -22,12 +30,12 @@ export async function loadSystemFromZip(file: File): Promise<LoadedSystem> {
   const systemData = JSON.parse(systemJson);
 
   // Validate system data
-  const parseResult = SolarSystemSchema.safeParse(systemData);
+  const parseResult = ZipFileSchema.safeParse(systemData);
   if (!parseResult.success) {
     throw new Error(`Invalid system data: ${parseResult.error.message}`);
   }
 
-  const system = parseResult.data;
+  const { system, rootBodies } = parseResult.data;
 
   // Load sprites
   const sprites = new Map<string, string>();
@@ -44,7 +52,7 @@ export async function loadSystemFromZip(file: File): Promise<LoadedSystem> {
     }
   }
 
-  return { system, sprites };
+  return { system, rootBodies, sprites };
 }
 
 /**

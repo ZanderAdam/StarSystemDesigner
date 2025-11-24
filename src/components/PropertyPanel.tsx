@@ -41,11 +41,8 @@ const DESCRIPTION_MAX_LENGTH = 500;
 
 export function PropertyPanel() {
   const system = useSystemStore((state) => state.system);
-  const updateStar = useSystemStore((state) => state.updateStar);
-  const updatePlanet = useSystemStore((state) => state.updatePlanet);
-  const updateMoon = useSystemStore((state) => state.updateMoon);
-  const updateStation = useSystemStore((state) => state.updateStation);
-  const updateAsteroid = useSystemStore((state) => state.updateAsteroid);
+  const findBody = useSystemStore((state) => state.findBody);
+  const updateBody = useSystemStore((state) => state.updateBody);
 
   const sprites = useSpriteStore((state) => state.sprites);
   const loadSpritesFromApi = useSpriteStore((state) => state.loadSpritesFromApi);
@@ -55,35 +52,8 @@ export function PropertyPanel() {
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
 
-  // Get selected object
-  let selectedObject: {
-    id: string;
-    name: string;
-    description: string;
-    sprite: string;
-    scale: number;
-    rotation: number;
-    rotationSpeed: number;
-    orbitDistance?: number;
-    orbitSpeed?: number;
-    orbitAngle?: number;
-    luminosity?: number;
-    stationType?: string;
-  } | null = null;
-
-  if (selection?.type === 'star') {
-    selectedObject = system?.stars.find((s) => s.id === selection.id) || null;
-  } else if (selection?.type === 'planet') {
-    selectedObject = system?.planets.find((p) => p.id === selection.id) || null;
-  } else if (selection?.type === 'moon' && selection.parentId) {
-    const planet = system?.planets.find((p) => p.id === selection.parentId);
-    selectedObject = planet?.moons.find((m) => m.id === selection.id) || null;
-  } else if (selection?.type === 'station' && selection.parentId) {
-    const planet = system?.planets.find((p) => p.id === selection.parentId);
-    selectedObject = planet?.stations.find((s) => s.id === selection.id) || null;
-  } else if (selection?.type === 'asteroid') {
-    selectedObject = system?.asteroids.find((a) => a.id === selection.id) || null;
-  }
+  // Get selected object from tree
+  const selectedObject = selection ? findBody(selection.id) : null;
 
   // Sync local state when selection changes
   useEffect(() => {
@@ -118,19 +88,10 @@ export function PropertyPanel() {
   }
 
   const handleUpdate = (field: string, value: string | number) => {
-    const updates = { [field]: value };
+    if (!selectedObject) return;
 
-    if (selection.type === 'star') {
-      updateStar(selection.id, updates);
-    } else if (selection.type === 'planet') {
-      updatePlanet(selection.id, updates);
-    } else if (selection.type === 'moon' && selection.parentId) {
-      updateMoon(selection.parentId, selection.id, updates);
-    } else if (selection.type === 'station' && selection.parentId) {
-      updateStation(selection.parentId, selection.id, updates);
-    } else if (selection.type === 'asteroid') {
-      updateAsteroid(selection.id, updates);
-    }
+    const updatedBody = { ...selectedObject, [field]: value };
+    updateBody(updatedBody);
   };
 
   const spriteUrl = selectedObject.sprite ? sprites.get(selectedObject.sprite) : null;

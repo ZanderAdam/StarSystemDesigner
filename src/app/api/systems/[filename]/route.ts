@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import { isLocalMode, getSystemsDirPath } from '@/lib/config';
-import { SolarSystemSchema } from '@/types';
+import { SolarSystemSchema, CelestialBodySchema } from '@/types';
+import { z } from 'zod';
+
+const SystemFileSchema = z.object({
+  system: SolarSystemSchema,
+  rootBodies: z.array(CelestialBodySchema),
+});
 
 export async function GET(
   request: Request,
@@ -38,24 +44,45 @@ export async function GET(
 
   try {
     const filePath = path.join(path.resolve(systemsDir), sanitizedFilename);
+    console.log('GET /api/systems/[filename] - Loading:', filePath);
+
     const fileContent = await fs.readFile(filePath, 'utf-8');
     const systemData = JSON.parse(fileContent);
 
     // Validate
-    const parseResult = SolarSystemSchema.safeParse(systemData);
+    const parseResult = SystemFileSchema.safeParse(systemData);
     if (!parseResult.success) {
+      console.error('GET /api/systems/[filename] - Validation failed:', JSON.stringify(parseResult.error.issues, null, 2));
       return NextResponse.json(
         { error: 'Invalid system file', details: parseResult.error.issues },
         { status: 400 }
       );
     }
 
+    console.log('GET /api/systems/[filename] - Loaded:', parseResult.data.system.name);
     return NextResponse.json(parseResult.data);
   } catch (error) {
-    console.error('Error reading system file:', error);
+    console.error('GET /api/systems/[filename] - Error:', error);
+
+    // Return appropriate status code based on error type
+    if (error instanceof Error) {
+      if ('code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return NextResponse.json(
+          { error: 'System not found' },
+          { status: 404 }
+        );
+      }
+      if (error instanceof SyntaxError) {
+        return NextResponse.json(
+          { error: 'Invalid JSON in system file' },
+          { status: 400 }
+        );
+      }
+    }
+
     return NextResponse.json(
-      { error: 'System not found' },
-      { status: 404 }
+      { error: 'Failed to read system file' },
+      { status: 500 }
     );
   }
 }
@@ -94,11 +121,14 @@ export async function DELETE(
 
   try {
     const filePath = path.join(path.resolve(systemsDir), sanitizedFilename);
+    console.log('DELETE /api/systems/[filename] - Deleting:', filePath);
+
     await fs.unlink(filePath);
 
+    console.log('DELETE /api/systems/[filename] - Deleted successfully');
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting system file:', error);
+    console.error('DELETE /api/systems/[filename] - Error:', error);
     return NextResponse.json(
       { error: 'Failed to delete system' },
       { status: 500 }

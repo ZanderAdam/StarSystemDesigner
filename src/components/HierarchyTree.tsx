@@ -19,47 +19,49 @@ import {
   Building,
   Circle,
 } from 'lucide-react';
-import type { Planet, Star as StarType } from '@/types';
+import type { CelestialBody, Planet, Star as StarType } from '@/types';
+import { createDefaultPlanet, createDefaultMoon, createDefaultStation, createDefaultAsteroid } from '@/lib/defaults';
 
 export function HierarchyTree() {
   const system = useSystemStore((state) => state.system);
-  const addPlanet = useSystemStore((state) => state.addPlanet);
-  const addMoon = useSystemStore((state) => state.addMoon);
-  const addStation = useSystemStore((state) => state.addStation);
-  const addAsteroid = useSystemStore((state) => state.addAsteroid);
-  const removeStar = useSystemStore((state) => state.removeStar);
-  const removePlanet = useSystemStore((state) => state.removePlanet);
-  const removeMoon = useSystemStore((state) => state.removeMoon);
-  const removeStation = useSystemStore((state) => state.removeStation);
-  const removeAsteroid = useSystemStore((state) => state.removeAsteroid);
+  const rootBodies = useSystemStore((state) => state.rootBodies);
+  const addBody = useSystemStore((state) => state.addBody);
+  const removeBody = useSystemStore((state) => state.removeBody);
 
   const selection = useUIStore((state) => state.selection);
   const select = useUIStore((state) => state.select);
   const setFocusTarget = useUIStore((state) => state.setFocusTarget);
 
-  // Click tracking for double-click detection (must be before conditional returns)
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastClickRef = useRef<{ type: string; id: string; time: number } | null>(null);
 
-  // Calculate all expandable node IDs for auto-expand
+  // Get stars and asteroids from root
+  const stars = useMemo(() =>
+    rootBodies.filter(b => b.type === 'star') as StarType[],
+    [rootBodies]
+  );
+  const asteroids = useMemo(() =>
+    rootBodies.filter(b => b.type === 'asteroid'),
+    [rootBodies]
+  );
+
+  // Calculate expandable nodes
   const allNodeIds = useMemo(() => {
-    if (!system) return new Set<string>();
     const ids = new Set<string>();
-    system.stars.forEach(star => {
-      ids.add(star.id);
-      const starPlanets = system.planets.filter(p => p.parentStarId === star.id);
-      starPlanets.forEach(planet => {
-        if (planet.moons.length > 0 || planet.stations.length > 0) {
-          ids.add(planet.id);
+    const addIds = (bodies: CelestialBody[]) => {
+      for (const body of bodies) {
+        if (body.children.length > 0) {
+          ids.add(body.id);
+          addIds(body.children);
         }
-      });
-    });
+      }
+    };
+    addIds(rootBodies);
     return ids;
-  }, [system]);
+  }, [rootBodies]);
 
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
-  // Auto-expand all nodes when system loads
   useEffect(() => {
     if (allNodeIds.size > 0) {
       setExpandedNodes(allNodeIds);
@@ -86,33 +88,29 @@ export function HierarchyTree() {
     });
   };
 
-  const isSelected = (type: string, id: string, parentId?: string) => {
+  const isSelected = (type: string, id: string) => {
     if (!selection) return false;
-    return selection.type === type && selection.id === id && selection.parentId === parentId;
+    return selection.type === type && selection.id === id;
   };
 
   const handleItemClick = (
-    type: 'star' | 'planet' | 'moon' | 'station' | 'asteroid',
+    type: CelestialBody['type'],
     id: string,
     parentId?: string
   ) => {
     const now = Date.now();
     const lastClick = lastClickRef.current;
 
-    // Check if this is a double-click (same item within 300ms)
     if (lastClick && lastClick.type === type && lastClick.id === id && now - lastClick.time < 300) {
-      // Double-click detected
       if (clickTimeoutRef.current) {
         clearTimeout(clickTimeoutRef.current);
         clickTimeoutRef.current = null;
       }
       lastClickRef.current = null;
-      // Tell Canvas to center on this object
       setFocusTarget({ type, id, parentId });
       return;
     }
 
-    // Single click - delay selection to allow for double-click
     lastClickRef.current = { type, id, time: now };
 
     if (clickTimeoutRef.current) {
@@ -125,62 +123,49 @@ export function HierarchyTree() {
     }, 200);
   };
 
-  const handleAddPlanet = (starId: string, e: React.MouseEvent) => {
+  const handleAddPlanet = (starId: string, star: CelestialBody, e: React.MouseEvent) => {
     e.stopPropagation();
-    const planet = addPlanet(starId, {});
+    if (!system) return;
+    const planetNumber = star.children.filter(c => c.type === 'planet').length + 1;
+    const planet = createDefaultPlanet(system.name, starId, planetNumber);
+    addBody(planet);
     select({ type: 'planet', id: planet.id });
     setExpandedNodes((prev) => new Set([...prev, starId]));
   };
 
-  const handleAddMoon = (planetId: string, e: React.MouseEvent) => {
+  const handleAddMoon = (planetId: string, planet: CelestialBody, e: React.MouseEvent) => {
     e.stopPropagation();
-    const moon = addMoon(planetId, {});
+    const moonIndex = planet.children.filter(c => c.type === 'moon').length;
+    const moon = createDefaultMoon(planetId, moonIndex);
+    addBody(moon);
     select({ type: 'moon', id: moon.id, parentId: planetId });
     setExpandedNodes((prev) => new Set([...prev, planetId]));
   };
 
-  const handleAddStation = (planetId: string, e: React.MouseEvent) => {
+  const handleAddStation = (planetId: string, planet: CelestialBody, e: React.MouseEvent) => {
     e.stopPropagation();
-    const station = addStation(planetId, {});
+    const stationIndex = planet.children.filter(c => c.type === 'station').length + 1;
+    const station = createDefaultStation(planetId, 'research', stationIndex);
+    addBody(station);
     select({ type: 'station', id: station.id, parentId: planetId });
     setExpandedNodes((prev) => new Set([...prev, planetId]));
   };
 
   const handleAddAsteroid = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const asteroid = addAsteroid({});
+    if (!system) return;
+    const beltIndex = asteroids.length + 1;
+    const asteroid = createDefaultAsteroid(system.name, beltIndex);
+    addBody(asteroid);
     select({ type: 'asteroid', id: asteroid.id });
   };
 
-  const handleDelete = (
-    type: 'star' | 'planet' | 'moon' | 'station' | 'asteroid',
-    id: string,
-    parentId?: string,
-    e?: React.MouseEvent
-  ) => {
+  const handleDelete = (body: CelestialBody, e?: React.MouseEvent) => {
     e?.stopPropagation();
-
-    if (selection?.id === id) {
+    if (selection?.id === body.id) {
       select(null);
     }
-
-    switch (type) {
-      case 'star':
-        removeStar(id);
-        break;
-      case 'planet':
-        removePlanet(id);
-        break;
-      case 'moon':
-        if (parentId) removeMoon(parentId, id);
-        break;
-      case 'station':
-        if (parentId) removeStation(parentId, id);
-        break;
-      case 'asteroid':
-        removeAsteroid(id);
-        break;
-    }
+    removeBody(body);
   };
 
   const TreeItem = ({
@@ -218,32 +203,18 @@ export function HierarchyTree() {
           >
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="icon" className="h-4 w-4 p-0">
-                {isExpanded ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
+                {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               </Button>
             </CollapsibleTrigger>
-            <div
-              className="flex flex-1 items-center gap-1"
-              onClick={onClick}
-            >
+            <div className="flex flex-1 items-center gap-1" onClick={onClick}>
               <Icon className="h-4 w-4 shrink-0" />
               <span className="flex-1 truncate text-sm">{label}</span>
-              {sublabel && (
-                <span className="text-xs text-muted-foreground">{sublabel}</span>
-              )}
+              {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
             </div>
             <div className="hidden gap-0.5 group-hover:flex">
               {actions}
               {onDelete && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5 p-0 text-destructive hover:text-destructive"
-                  onClick={onDelete}
-                >
+                <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:text-destructive" onClick={onDelete}>
                   <Trash2 className="h-3 w-3" />
                 </Button>
               )}
@@ -256,26 +227,17 @@ export function HierarchyTree() {
 
     return (
       <div
-        className={`group flex items-center gap-1 rounded px-2 py-1 cursor-pointer hover:bg-accent ${
-          isSelected ? 'bg-accent' : ''
-        }`}
+        className={`group flex items-center gap-1 rounded px-2 py-1 cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent' : ''}`}
         onClick={onClick}
       >
         <div className="w-4" />
         <Icon className="h-4 w-4 shrink-0" />
         <span className="flex-1 truncate text-sm">{label}</span>
-        {sublabel && (
-          <span className="text-xs text-muted-foreground">{sublabel}</span>
-        )}
+        {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
         <div className="hidden gap-0.5 group-hover:flex">
           {actions}
           {onDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 p-0 text-destructive hover:text-destructive"
-              onClick={onDelete}
-            >
+            <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:text-destructive" onClick={onDelete}>
               <Trash2 className="h-3 w-3" />
             </Button>
           )}
@@ -284,103 +246,60 @@ export function HierarchyTree() {
     );
   };
 
-  const renderPlanet = (planet: Planet) => {
-    const hasChildren = planet.moons.length > 0 || planet.stations.length > 0;
+  const renderBody = (body: CelestialBody): React.ReactNode => {
+    const iconMap = {
+      star: Star,
+      planet: Globe,
+      moon: Moon,
+      station: Building,
+      asteroid: Circle,
+    };
+    const Icon = iconMap[body.type];
+    const hasChildren = body.children.length > 0;
 
-    return (
-      <TreeItem
-        key={planet.id}
-        icon={Globe}
-        label={planet.name}
-        sublabel={planet.id}
-        isSelected={isSelected('planet', planet.id)}
-        onClick={() => handleItemClick('planet', planet.id)}
-        onDelete={(e) => handleDelete('planet', planet.id, undefined, e)}
-        nodeId={planet.id}
-        hasChildren={hasChildren}
-        actions={
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 p-0"
-              onClick={(e) => handleAddMoon(planet.id, e)}
-              title="Add Moon"
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 p-0"
-              onClick={(e) => handleAddStation(planet.id, e)}
-              title="Add Station"
-            >
-              <Building className="h-3 w-3" />
-            </Button>
-          </>
-        }
-      >
-        {planet.moons.map((moon) => (
-          <TreeItem
-            key={moon.id}
-            icon={Moon}
-            label={moon.name}
-            sublabel={moon.id}
-            isSelected={isSelected('moon', moon.id, planet.id)}
-            onClick={() => handleItemClick('moon', moon.id, planet.id)}
-            onDelete={(e) => handleDelete('moon', moon.id, planet.id, e)}
-            nodeId={moon.id}
-            hasChildren={false}
-          />
-        ))}
-        {planet.stations.map((station) => (
-          <TreeItem
-            key={station.id}
-            icon={Building}
-            label={station.name}
-            sublabel={station.stationType}
-            isSelected={isSelected('station', station.id, planet.id)}
-            onClick={() => handleItemClick('station', station.id, planet.id)}
-            onDelete={(e) => handleDelete('station', station.id, planet.id, e)}
-            nodeId={station.id}
-            hasChildren={false}
-          />
-        ))}
-      </TreeItem>
-    );
-  };
-
-  const renderStar = (star: StarType) => {
-    const starPlanets = system.planets.filter((p) => p.parentStarId === star.id);
-    const hasChildren = starPlanets.length > 0;
-
-    return (
-      <TreeItem
-        key={star.id}
-        icon={Star}
-        label={star.name}
-        sublabel={star.id}
-        isSelected={isSelected('star', star.id)}
-        onClick={() => handleItemClick('star', star.id)}
-        onDelete={system.stars.length > 1 ? (e) => handleDelete('star', star.id, undefined, e) : undefined}
-        nodeId={star.id}
-        hasChildren={hasChildren}
-        actions={
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5 p-0"
-            onClick={(e) => handleAddPlanet(star.id, e)}
-            title="Add Planet"
-          >
+    let actions: React.ReactNode = null;
+    if (body.type === 'star') {
+      actions = (
+        <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={(e) => handleAddPlanet(body.id, body, e)} title="Add Planet">
+          <Plus className="h-3 w-3" />
+        </Button>
+      );
+    } else if (body.type === 'planet') {
+      actions = (
+        <>
+          <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={(e) => handleAddMoon(body.id, body, e)} title="Add Moon">
             <Plus className="h-3 w-3" />
           </Button>
-        }
+          <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={(e) => handleAddStation(body.id, body, e)} title="Add Station">
+            <Building className="h-3 w-3" />
+          </Button>
+        </>
+      );
+    }
+
+    const canDelete = body.type !== 'star' || stars.length > 1;
+
+    return (
+      <TreeItem
+        key={body.id}
+        icon={Icon}
+        label={body.name}
+        sublabel={body.type === 'station' ? body.stationType : body.id}
+        isSelected={isSelected(body.type, body.id)}
+        onClick={() => handleItemClick(body.type, body.id, body.parentId ?? undefined)}
+        onDelete={canDelete ? (e) => handleDelete(body, e) : undefined}
+        nodeId={body.id}
+        hasChildren={hasChildren}
+        actions={actions}
       >
-        {starPlanets
-          .sort((a, b) => a.planetNumber - b.planetNumber)
-          .map(renderPlanet)}
+        {body.children
+          .sort((a, b) => {
+            if (a.type === 'planet' && b.type === 'planet') {
+              return (a.planetNumber || 0) - (b.planetNumber || 0);
+            }
+            return 0;
+          })
+          .map(renderBody)}
       </TreeItem>
     );
   };
@@ -392,40 +311,20 @@ export function HierarchyTree() {
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         <div className="space-y-1">
-          {system.stars.map(renderStar)}
+          {stars.map(renderBody)}
         </div>
 
-        {(system.asteroids.length > 0 || true) && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between px-2 py-1">
-              <span className="text-xs font-semibold text-muted-foreground">ASTEROID BELTS</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 p-0"
-                onClick={handleAddAsteroid}
-                title="Add Asteroid Belt"
-              >
-                <Plus className="h-3 w-3" />
-              </Button>
-            </div>
-            <div className="space-y-1">
-              {system.asteroids.map((asteroid) => (
-                <TreeItem
-                  key={asteroid.id}
-                  icon={Circle}
-                  label={asteroid.name}
-                  sublabel={asteroid.id}
-                  isSelected={isSelected('asteroid', asteroid.id)}
-                  onClick={() => handleItemClick('asteroid', asteroid.id)}
-                  onDelete={(e) => handleDelete('asteroid', asteroid.id, undefined, e)}
-                  nodeId={asteroid.id}
-                  hasChildren={false}
-                />
-              ))}
-            </div>
+        <div className="mt-4">
+          <div className="flex items-center justify-between px-2 py-1">
+            <span className="text-xs font-semibold text-muted-foreground">ASTEROID BELTS</span>
+            <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={handleAddAsteroid} title="Add Asteroid Belt">
+              <Plus className="h-3 w-3" />
+            </Button>
           </div>
-        )}
+          <div className="space-y-1">
+            {asteroids.map(renderBody)}
+          </div>
+        </div>
       </div>
     </div>
   );

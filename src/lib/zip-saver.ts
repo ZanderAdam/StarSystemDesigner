@@ -1,39 +1,28 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import type { SolarSystem } from '@/types';
+import type { SolarSystem, CelestialBody } from '@/types';
 
 export interface SaveOptions {
   system: SolarSystem;
+  rootBodies: CelestialBody[];
   sprites: Map<string, Blob | string>; // filename -> blob or URL
   filename?: string;
 }
 
 /**
- * Get all unique sprite filenames used in a system
+ * Get all unique sprite filenames used in a tree of bodies
  */
-export function getUsedSprites(system: SolarSystem): Set<string> {
+export function getUsedSprites(rootBodies: CelestialBody[]): Set<string> {
   const sprites = new Set<string>();
 
-  for (const star of system.stars) {
-    if (star.sprite) sprites.add(star.sprite);
-  }
-
-  for (const planet of system.planets) {
-    if (planet.sprite) sprites.add(planet.sprite);
-
-    for (const moon of planet.moons) {
-      if (moon.sprite) sprites.add(moon.sprite);
+  const collectSprites = (bodies: CelestialBody[]) => {
+    for (const body of bodies) {
+      if (body.sprite) sprites.add(body.sprite);
+      collectSprites(body.children);
     }
+  };
 
-    for (const station of planet.stations) {
-      if (station.sprite) sprites.add(station.sprite);
-    }
-  }
-
-  for (const asteroid of system.asteroids) {
-    if (asteroid.sprite) sprites.add(asteroid.sprite);
-  }
-
+  collectSprites(rootBodies);
   return sprites;
 }
 
@@ -41,16 +30,17 @@ export function getUsedSprites(system: SolarSystem): Set<string> {
  * Save a system to a ZIP file (production mode)
  */
 export async function saveSystemToZip(options: SaveOptions): Promise<void> {
-  const { system, sprites, filename = `${system.name.toLowerCase().replace(/\s+/g, '-')}.zip` } = options;
+  const { system, rootBodies, sprites, filename = `${system.name.toLowerCase().replace(/\s+/g, '-')}.zip` } = options;
 
   const zip = new JSZip();
 
-  // Add system.json
-  const systemJson = JSON.stringify(system, null, 2);
+  // Add system.json with new format
+  const systemData = { system, rootBodies };
+  const systemJson = JSON.stringify(systemData, null, 2);
   zip.file('system.json', systemJson);
 
   // Add sprites folder with used sprites
-  const usedSprites = getUsedSprites(system);
+  const usedSprites = getUsedSprites(rootBodies);
   const spritesFolder = zip.folder('sprites');
 
   if (spritesFolder) {

@@ -1,1 +1,1 @@
-export { solSystemTemplate } from './sol-template';
+export { solSystem, solBodies } from './sol-template';

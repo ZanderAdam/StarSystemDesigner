@@ -7,7 +7,7 @@ import { PropertyPanel } from '@/components/PropertyPanel';
 import { HierarchyTree } from '@/components/HierarchyTree';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { useSystemStore, useUIStore } from '@/stores';
-import { solSystemTemplate } from '@/data';
+import { solSystem, solBodies } from '@/data';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
@@ -17,7 +17,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!system) {
-      loadSystem(solSystemTemplate);
+      loadSystem(solSystem, solBodies);
     }
   }, [system, loadSystem]);
 

@@ -8,8 +8,8 @@ export const Vector2Schema = z.object({
 
 export type Vector2 = z.infer<typeof Vector2Schema>;
 
-// Base celestial body schema
-export const CelestialBodySchema = z.object({
+// Base schema without children (for extending)
+const BaseCelestialBodySchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string().max(500).default(''),
@@ -19,66 +19,87 @@ export const CelestialBodySchema = z.object({
   scale: z.number().positive().default(1),
   rotation: z.number().default(0),
   rotationSpeed: z.number().default(0),
+  parentId: z.string().nullable().default(null),
+  orbitDistance: z.number().nonnegative().default(0),
+  orbitSpeed: z.number().default(0),
+  orbitAngle: z.number().default(0),
+  baseSize: z.number().optional(),
+  fallbackColor: z.string().optional(),
+  orbitRingColor: z.string().optional(),
+  orbitRingWidth: z.number().optional(),
+  isRingOnly: z.boolean().optional(),
+  // Type-specific fields (optional on base)
+  planetNumber: z.number().int().positive().optional(),
+  moonLetter: z.string().length(1).optional(),
+  starLetter: z.string().optional(),
+  luminosity: z.number().positive().optional(),
+  stationType: z.enum(['research', 'mining', 'military', 'trade', 'ring']).optional(),
+  beltIndex: z.number().int().positive().optional(),
 });
 
-export type CelestialBody = z.infer<typeof CelestialBodySchema>;
+// Recursive schema for children
+export const CelestialBodySchema: z.ZodType<CelestialBody> = z.lazy(() =>
+  BaseCelestialBodySchema.extend({
+    children: z.array(CelestialBodySchema).default([]),
+  })
+);
+
+export interface CelestialBody {
+  id: string;
+  name: string;
+  description: string;
+  type: 'star' | 'planet' | 'moon' | 'asteroid' | 'station';
+  sprite: string;
+  position?: { x: number; y: number };
+  scale: number;
+  rotation: number;
+  rotationSpeed: number;
+  parentId: string | null;
+  orbitDistance: number;
+  orbitSpeed: number;
+  orbitAngle: number;
+  children: CelestialBody[];
+  baseSize?: number;
+  fallbackColor?: string;
+  orbitRingColor?: string;
+  orbitRingWidth?: number;
+  isRingOnly?: boolean;
+  // Type-specific fields
+  planetNumber?: number;
+  moonLetter?: string;
+  starLetter?: string;
+  luminosity?: number;
+  stationType?: 'research' | 'mining' | 'military' | 'trade' | 'ring';
+  beltIndex?: number;
+}
 
 // Station types
 export const StationTypeSchema = z.enum(['research', 'mining', 'military', 'trade', 'ring']);
 export type StationType = z.infer<typeof StationTypeSchema>;
 
-// Station schema
-export const StationSchema = CelestialBodySchema.extend({
-  type: z.literal('station'),
-  stationType: StationTypeSchema,
-  parentId: z.string(),
-  orbitDistance: z.number().nonnegative().default(20),
-  orbitSpeed: z.number().default(1),
-  orbitAngle: z.number().default(0),
-});
+// Type aliases for specific body types (all extend base interface)
+export interface Station extends CelestialBody {
+  type: 'station';
+  stationType: 'research' | 'mining' | 'military' | 'trade' | 'ring';
+}
 
-export type Station = z.infer<typeof StationSchema>;
+export interface Moon extends CelestialBody {
+  type: 'moon';
+  moonLetter: string;
+}
 
-// Moon schema
-export const MoonSchema = CelestialBodySchema.extend({
-  type: z.literal('moon'),
-  parentPlanetId: z.string(),
-  moonLetter: z.string().length(1),
-  orbitDistance: z.number().nonnegative(),
-  orbitSpeed: z.number().default(1),
-  orbitAngle: z.number().default(0),
-});
+export interface Planet extends CelestialBody {
+  type: 'planet';
+  planetNumber: number;
+}
 
-export type Moon = z.infer<typeof MoonSchema>;
+export interface Star extends CelestialBody {
+  type: 'star';
+  luminosity: number;
+  starLetter?: string;
+}
 
-// Planet schema
-export const PlanetSchema = CelestialBodySchema.extend({
-  type: z.literal('planet'),
-  parentStarId: z.string(),
-  planetNumber: z.number().int().positive(),
-  orbitDistance: z.number().nonnegative(),
-  orbitSpeed: z.number().default(1),
-  orbitAngle: z.number().default(0),
-  moons: z.array(MoonSchema).default([]),
-  stations: z.array(StationSchema).default([]),
-});
-
-export type Planet = z.infer<typeof PlanetSchema>;
-
-// Star schema
-export const StarSchema = CelestialBodySchema.extend({
-  type: z.literal('star'),
-  starLetter: z.string().optional(),
-  luminosity: z.number().positive().default(1),
-});
-
-export type Star = z.infer<typeof StarSchema>;
-
-// Asteroid schema
-export const AsteroidSchema = CelestialBodySchema.extend({
-  type: z.literal('asteroid'),
-  beltIndex: z.number().int().positive().optional(),
-  orbitDistance: z.number().nonnegative().optional(),
-});
-
-export type Asteroid = z.infer<typeof AsteroidSchema>;
+export interface Asteroid extends CelestialBody {
+  type: 'asteroid';
+  beltIndex?: number;
+}

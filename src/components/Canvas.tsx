@@ -1,16 +1,50 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Stage, Layer, Circle, Ring, Image as KonvaImage, Group } from 'react-konva';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
-import type { Planet, Moon, Station, Asteroid, Star } from '@/types';
+import type { CelestialBody } from '@/types';
 import type Konva from 'konva';
+
+const FRAME_INTERVAL_MS = 33;
+const ORBIT_SPEED_MULTIPLIER = 10;
+const ZOOM_SCALE_FACTOR = 1.02;
+const MAX_AUTO_FIT_ZOOM = 1;
+const CANVAS_PADDING = 50;
 
 interface LoadedImage {
   image: HTMLImageElement;
   loaded: boolean;
 }
 
+const defaultVisuals = {
+  star: { baseSize: 64, fallbackColor: '#FFD700', orbitRingColor: '', orbitRingWidth: 0, isRingOnly: false },
+  planet: { baseSize: 48, fallbackColor: '#6366F1', orbitRingColor: 'rgba(100, 116, 139, 0.3)', orbitRingWidth: 1, isRingOnly: false },
+  moon: { baseSize: 24, fallbackColor: '#94A3B8', orbitRingColor: 'rgba(100, 116, 139, 0.2)', orbitRingWidth: 0.5, isRingOnly: false },
+  station: { baseSize: 20, fallbackColor: '#EAB308', orbitRingColor: 'rgba(234, 179, 8, 0.2)', orbitRingWidth: 0.5, isRingOnly: false },
+  asteroid: { baseSize: 0, fallbackColor: 'rgba(156, 163, 175, 0.15)', orbitRingColor: 'rgba(156, 163, 175, 0.15)', orbitRingWidth: 3, isRingOnly: true },
+};
+
+function getVisual(body: CelestialBody, prop: keyof typeof defaultVisuals.star): number | string | boolean {
+  const value = body[prop as keyof CelestialBody];
+  if (value !== undefined) return value as number | string | boolean;
+  return defaultVisuals[body.type as keyof typeof defaultVisuals]?.[prop] ?? defaultVisuals.planet[prop];
+}
+
+/**
+ * Canvas component for rendering the solar system.
+ *
+ * Uses a fixed 30fps render loop via requestAnimationFrame instead of React's
+ * reactive state updates. This approach:
+ * - Provides smooth, consistent animation regardless of state update frequency
+ * - Avoids excessive re-renders from high-frequency state changes (e.g., orbit angles)
+ * - Reads current state via getState() on each frame rather than subscribing to changes
+ * - Only triggers React re-render via setFrame() to paint the current state
+ *
+ * The Canvas is intentionally "type-agnostic" - it recursively renders all CelestialBody
+ * objects using the same logic, with visual properties (size, color, orbit ring) determined
+ * by the body's properties or type-based defaults.
+ */
 export function Canvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const lastTimeRef = useRef<number>(0);
@@ -20,44 +54,51 @@ export function Canvas() {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [images, setImages] = useState<Map<string, LoadedImage>>(new Map());
 
-  // Get actions without subscribing (called once on mount)
   const select = useUIStore.getState().select;
   const setCameraPosition = useUIStore.getState().setCameraPosition;
   const setCameraZoom = useUIStore.getState().setCameraZoom;
   const setComputedZoom = useUIStore.getState().setComputedZoom;
   const setFocusTarget = useUIStore.getState().setFocusTarget;
 
+  // Clear angles when system changes to prevent memory leak
+  useEffect(() => {
+    let prevSystemId = useSystemStore.getState().system?.id;
+    const unsubscribe = useSystemStore.subscribe((state) => {
+      const currentSystemId = state.system?.id;
+      if (currentSystemId !== prevSystemId) {
+        anglesRef.current.clear();
+        prevSystemId = currentSystemId;
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   // 30fps render loop
   useEffect(() => {
     let frameId: number;
     let lastFrame = 0;
 
+    const updateAngles = (bodies: CelestialBody[], deltaTime: number) => {
+      for (const body of bodies) {
+        if (body.orbitDistance > 0) {
+          const currentAngle = anglesRef.current.get(body.id) ?? body.orbitAngle;
+          anglesRef.current.set(body.id, (currentAngle + body.orbitSpeed * deltaTime * ORBIT_SPEED_MULTIPLIER) % 360);
+        }
+        updateAngles(body.children, deltaTime);
+      }
+    };
+
     const tick = (time: number) => {
-      if (time - lastFrame >= 33) {
+      if (time - lastFrame >= FRAME_INTERVAL_MS) {
         lastFrame = time;
 
-        // Update animation angles
-        const system = useSystemStore.getState().system;
         const isAnimating = useUIStore.getState().isAnimating;
+        const rootBodies = useSystemStore.getState().rootBodies;
 
-        if (isAnimating && system) {
+        if (isAnimating && rootBodies.length > 0) {
           const deltaTime = lastTimeRef.current ? (time - lastTimeRef.current) / 1000 : 0;
           lastTimeRef.current = time;
-
-          for (const planet of system.planets) {
-            const currentAngle = anglesRef.current.get(planet.id) ?? planet.orbitAngle;
-            anglesRef.current.set(planet.id, (currentAngle + planet.orbitSpeed * deltaTime * 10) % 360);
-
-            for (const moon of planet.moons) {
-              const moonAngle = anglesRef.current.get(moon.id) ?? moon.orbitAngle;
-              anglesRef.current.set(moon.id, (moonAngle + moon.orbitSpeed * deltaTime * 10) % 360);
-            }
-
-            for (const station of planet.stations) {
-              const stationAngle = anglesRef.current.get(station.id) ?? station.orbitAngle;
-              anglesRef.current.set(station.id, (stationAngle + station.orbitSpeed * deltaTime * 10) % 360);
-            }
-          }
+          updateAngles(rootBodies, deltaTime);
         } else {
           lastTimeRef.current = time;
         }
@@ -87,10 +128,10 @@ export function Canvas() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Load sprite images
+  // Load sprite images when sprites change
   useEffect(() => {
-    const sprites = useSpriteStore.getState().sprites;
-    const loadImages = async () => {
+    const loadImages = () => {
+      const sprites = useSpriteStore.getState().sprites;
       const newImages = new Map<string, LoadedImage>();
 
       for (const [filename, url] of sprites.entries()) {
@@ -112,102 +153,93 @@ export function Canvas() {
     };
 
     loadImages();
-  }, [useSpriteStore.getState().sprites.size]);
 
-  // Read state directly each frame
-  const system = useSystemStore.getState().system;
-  const sprites = useSpriteStore.getState().sprites;
+    // Subscribe to sprite changes
+    let prevSize = useSpriteStore.getState().sprites.size;
+    const unsubscribe = useSpriteStore.subscribe((state) => {
+      if (state.sprites.size !== prevSize) {
+        prevSize = state.sprites.size;
+        loadImages();
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const rootBodies = useSystemStore.getState().rootBodies;
   const { selection, cameraPosition, cameraZoom: storeZoom, showOrbits, isAnimating, focusTarget } = useUIStore.getState();
 
-  // Calculate auto-fit zoom
-  let autoFitZoom = 1;
-  if (system && dimensions.width > 0) {
-    let maxDistance = 0;
-    for (const planet of system.planets) {
-      let planetMax = planet.orbitDistance;
-      for (const moon of planet.moons) {
-        planetMax = Math.max(planetMax, planet.orbitDistance + moon.orbitDistance);
+  // Calculate max orbit distance for auto-fit (memoized)
+  const autoFitZoom = useMemo(() => {
+    const getMaxOrbitDistance = (bodies: CelestialBody[]): number => {
+      let max = 0;
+      for (const body of bodies) {
+        if (body.parentId === null) {
+          max = Math.max(max, body.orbitDistance);
+        }
+        for (const child of body.children) {
+          max = Math.max(max, child.orbitDistance);
+        }
       }
-      maxDistance = Math.max(maxDistance, planetMax);
-    }
+      return max;
+    };
 
-    if (maxDistance > 0) {
-      const padding = 50;
-      const availableSize = Math.min(dimensions.width, dimensions.height) - padding * 2;
-      const requiredSize = maxDistance * 2;
-      autoFitZoom = Math.min(1, availableSize / requiredSize);
+    if (rootBodies.length > 0 && dimensions.width > 0) {
+      const maxDistance = getMaxOrbitDistance(rootBodies);
+      if (maxDistance > 0) {
+        const availableSize = Math.min(dimensions.width, dimensions.height) - CANVAS_PADDING * 2;
+        const requiredSize = maxDistance * 2;
+        return Math.min(MAX_AUTO_FIT_ZOOM, availableSize / requiredSize);
+      }
     }
-  }
+    return 1;
+  }, [rootBodies, dimensions.width, dimensions.height]);
 
   const cameraZoom = autoFitZoom * storeZoom;
+  const centerX = dimensions.width / 2;
+  const centerY = dimensions.height / 2;
 
-  // Sync computed zoom to store
   useEffect(() => {
     setComputedZoom(cameraZoom);
   }, [cameraZoom, setComputedZoom]);
 
-  // Helper to get animated or base angle
-  const getAngle = (id: string, baseAngle: number): number => {
+  const getAngle = useCallback((id: string, baseAngle: number): number => {
     if (isAnimating) {
       return anglesRef.current.get(id) ?? baseAngle;
     }
     return baseAngle;
-  };
+  }, [isAnimating]);
 
-  // Handle focus target following
+  // Handle focus target
   useEffect(() => {
-    if (!focusTarget || !system) return;
+    if (!focusTarget || rootBodies.length === 0) return;
 
-    let targetX = 0;
-    let targetY = 0;
+    const findBody = useSystemStore.getState().findBody;
+    const targetBody = findBody(focusTarget.id);
+    if (!targetBody) return;
 
-    if (focusTarget.type === 'star') {
-      targetX = 0;
-      targetY = 0;
-    } else if (focusTarget.type === 'planet') {
-      const planet = system.planets.find(p => p.id === focusTarget.id);
-      if (planet) {
-        const angle = (getAngle(planet.id, planet.orbitAngle) * Math.PI) / 180;
-        targetX = Math.cos(angle) * planet.orbitDistance;
-        targetY = Math.sin(angle) * planet.orbitDistance;
-      }
-    } else if (focusTarget.type === 'moon' && focusTarget.parentId) {
-      const planet = system.planets.find(p => p.id === focusTarget.parentId);
-      if (planet) {
-        const moon = planet.moons.find(m => m.id === focusTarget.id);
-        if (moon) {
-          const planetAngle = (getAngle(planet.id, planet.orbitAngle) * Math.PI) / 180;
-          const planetX = Math.cos(planetAngle) * planet.orbitDistance;
-          const planetY = Math.sin(planetAngle) * planet.orbitDistance;
+    const calcPos = (body: CelestialBody): { x: number; y: number } => {
+      if (body.parentId === null) return { x: 0, y: 0 };
 
-          const moonAngle = (getAngle(moon.id, moon.orbitAngle) * Math.PI) / 180;
-          targetX = planetX + Math.cos(moonAngle) * moon.orbitDistance;
-          targetY = planetY + Math.sin(moonAngle) * moon.orbitDistance;
-        }
-      }
-    } else if (focusTarget.type === 'station' && focusTarget.parentId) {
-      const planet = system.planets.find(p => p.id === focusTarget.parentId);
-      if (planet) {
-        const station = planet.stations.find(s => s.id === focusTarget.id);
-        if (station) {
-          const planetAngle = (getAngle(planet.id, planet.orbitAngle) * Math.PI) / 180;
-          const planetX = Math.cos(planetAngle) * planet.orbitDistance;
-          const planetY = Math.sin(planetAngle) * planet.orbitDistance;
+      const parent = findBody(body.parentId);
+      if (!parent) return { x: 0, y: 0 };
 
-          const stationAngle = (getAngle(station.id, station.orbitAngle) * Math.PI) / 180;
-          targetX = planetX + Math.cos(stationAngle) * station.orbitDistance;
-          targetY = planetY + Math.sin(stationAngle) * station.orbitDistance;
-        }
-      }
-    }
+      const parentPos = calcPos(parent);
+      const angle = (getAngle(body.id, body.orbitAngle) * Math.PI) / 180;
+      return {
+        x: parentPos.x + Math.cos(angle) * body.orbitDistance,
+        y: parentPos.y + Math.sin(angle) * body.orbitDistance
+      };
+    };
 
+    const pos = calcPos(targetBody);
     setCameraPosition({
-      x: -targetX * cameraZoom,
-      y: -targetY * cameraZoom
+      x: -pos.x * cameraZoom,
+      y: -pos.y * cameraZoom
     });
-  }, [frame, focusTarget, system, cameraZoom, setCameraPosition]);
+  }, [frame, focusTarget, rootBodies, cameraZoom, setCameraPosition, getAngle]);
 
-  if (!system) {
+  if (rootBodies.length === 0) {
     return (
       <div
         ref={containerRef}
@@ -218,9 +250,6 @@ export function Canvas() {
     );
   }
 
-  const centerX = dimensions.width / 2;
-  const centerY = dimensions.height / 2;
-
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const stage = e.target.getStage();
@@ -229,8 +258,7 @@ export function Canvas() {
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    const scaleBy = 1.02;
-    const zoomFactor = e.evt.deltaY > 0 ? 1 / scaleBy : scaleBy;
+    const zoomFactor = e.evt.deltaY > 0 ? 1 / ZOOM_SCALE_FACTOR : ZOOM_SCALE_FACTOR;
     const newStoreZoom = storeZoom * zoomFactor;
 
     const oldActualZoom = autoFitZoom * storeZoom;
@@ -249,268 +277,113 @@ export function Canvas() {
   const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
     const stage = e.target.getStage();
     if (stage) {
-      setCameraPosition({
-        x: stage.x(),
-        y: stage.y()
-      });
-      if (focusTarget) {
-        setFocusTarget(null);
-      }
+      setCameraPosition({ x: stage.x(), y: stage.y() });
+      if (focusTarget) setFocusTarget(null);
     }
   };
 
-  const handleSelect = (type: 'star' | 'planet' | 'moon' | 'station' | 'asteroid', id: string, parentId?: string) => {
-    select({ type, id, parentId });
+  const handleSelect = (body: CelestialBody) => {
+    select({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
   };
 
-  const handleFocus = (type: 'star' | 'planet' | 'moon' | 'station' | 'asteroid', id: string, parentId?: string) => {
-    setFocusTarget({ type, id, parentId });
+  const handleFocus = (body: CelestialBody) => {
+    setFocusTarget({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
   };
 
-  const renderStar = (star: Star) => {
-    const loadedImage = images.get(star.sprite);
-    const isSelected = selection?.type === 'star' && selection.id === star.id;
+  // Recursive render function
+  const renderBody = (body: CelestialBody, parentX: number, parentY: number): React.ReactNode => {
+    const angle = (getAngle(body.id, body.orbitAngle) * Math.PI) / 180;
+    const x = parentX + Math.cos(angle) * body.orbitDistance * cameraZoom;
+    const y = parentY + Math.sin(angle) * body.orbitDistance * cameraZoom;
 
-    return (
-      <Group key={star.id} x={centerX} y={centerY}>
-        {loadedImage?.loaded ? (
-          <KonvaImage
-            image={loadedImage.image}
-            width={64 * star.scale * cameraZoom}
-            height={64 * star.scale * cameraZoom}
-            offsetX={32 * star.scale * cameraZoom}
-            offsetY={32 * star.scale * cameraZoom}
-            rotation={star.rotation}
-            onClick={() => handleSelect('star', star.id)}
-            onTap={() => handleSelect('star', star.id)}
-            onDblClick={() => handleFocus('star', star.id)}
-            onDblTap={() => handleFocus('star', star.id)}
-          />
-        ) : (
-          <Circle
-            radius={32 * star.scale * cameraZoom}
-            fill="#FFD700"
-            onClick={() => handleSelect('star', star.id)}
-            onTap={() => handleSelect('star', star.id)}
-            onDblClick={() => handleFocus('star', star.id)}
-            onDblTap={() => handleFocus('star', star.id)}
-          />
-        )}
-        {isSelected && (
-          <Ring
-            innerRadius={36 * star.scale * cameraZoom}
-            outerRadius={40 * star.scale * cameraZoom}
-            fill="#3B82F6"
-          />
-        )}
-      </Group>
-    );
-  };
+    const isSelected = selection?.type === body.type && selection.id === body.id;
+    const loadedImage = images.get(body.sprite);
 
-  const renderPlanet = (planet: Planet) => {
-    const loadedImage = images.get(planet.sprite);
-    const isSelected = selection?.type === 'planet' && selection.id === planet.id;
+    const baseSize = getVisual(body, 'baseSize') as number;
+    const fallbackColor = getVisual(body, 'fallbackColor') as string;
+    const orbitRingColor = getVisual(body, 'orbitRingColor') as string;
+    const orbitRingWidth = getVisual(body, 'orbitRingWidth') as number;
+    const isRingOnly = getVisual(body, 'isRingOnly') as boolean;
 
-    const orbitAngle = getAngle(planet.id, planet.orbitAngle);
-    const angle = (orbitAngle * Math.PI) / 180;
-    const x = centerX + Math.cos(angle) * planet.orbitDistance * cameraZoom;
-    const y = centerY + Math.sin(angle) * planet.orbitDistance * cameraZoom;
-
-    return (
-      <Group key={planet.id}>
-        {showOrbits && (
-          <Ring
-            x={centerX}
-            y={centerY}
-            innerRadius={planet.orbitDistance * cameraZoom - 1}
-            outerRadius={planet.orbitDistance * cameraZoom + 1}
-            fill="rgba(100, 116, 139, 0.3)"
-          />
-        )}
-
-        <Group x={x} y={y}>
-          {loadedImage?.loaded ? (
-            <KonvaImage
-              image={loadedImage.image}
-              width={48 * planet.scale * cameraZoom}
-              height={48 * planet.scale * cameraZoom}
-              offsetX={24 * planet.scale * cameraZoom}
-              offsetY={24 * planet.scale * cameraZoom}
-              rotation={planet.rotation}
-              onClick={() => handleSelect('planet', planet.id)}
-              onTap={() => handleSelect('planet', planet.id)}
-              onDblClick={() => handleFocus('planet', planet.id)}
-              onDblTap={() => handleFocus('planet', planet.id)}
-            />
-          ) : (
-            <Circle
-              radius={24 * planet.scale * cameraZoom}
-              fill="#6366F1"
-              onClick={() => handleSelect('planet', planet.id)}
-              onTap={() => handleSelect('planet', planet.id)}
-              onDblClick={() => handleFocus('planet', planet.id)}
-              onDblTap={() => handleFocus('planet', planet.id)}
-            />
-          )}
-          {isSelected && (
-            <Ring
-              innerRadius={28 * planet.scale * cameraZoom}
-              outerRadius={32 * planet.scale * cameraZoom}
-              fill="#3B82F6"
-            />
-          )}
-        </Group>
-
-        {planet.moons.map((moon) => renderMoon(moon, x, y))}
-        {planet.stations.map((station) => renderStation(station, x, y))}
-      </Group>
-    );
-  };
-
-  const renderMoon = (moon: Moon, planetX: number, planetY: number) => {
-    const loadedImage = images.get(moon.sprite);
-    const isSelected = selection?.type === 'moon' && selection.id === moon.id;
-
-    const orbitAngle = getAngle(moon.id, moon.orbitAngle);
-    const angle = (orbitAngle * Math.PI) / 180;
-    const x = planetX + Math.cos(angle) * moon.orbitDistance * cameraZoom;
-    const y = planetY + Math.sin(angle) * moon.orbitDistance * cameraZoom;
-
-    return (
-      <Group key={moon.id}>
-        {showOrbits && (
-          <Ring
-            x={planetX}
-            y={planetY}
-            innerRadius={moon.orbitDistance * cameraZoom - 0.5}
-            outerRadius={moon.orbitDistance * cameraZoom + 0.5}
-            fill="rgba(100, 116, 139, 0.2)"
-          />
-        )}
-
-        <Group x={x} y={y}>
-          {loadedImage?.loaded ? (
-            <KonvaImage
-              image={loadedImage.image}
-              width={24 * moon.scale * cameraZoom}
-              height={24 * moon.scale * cameraZoom}
-              offsetX={12 * moon.scale * cameraZoom}
-              offsetY={12 * moon.scale * cameraZoom}
-              rotation={moon.rotation}
-              onClick={() => handleSelect('moon', moon.id, moon.parentPlanetId)}
-              onTap={() => handleSelect('moon', moon.id, moon.parentPlanetId)}
-              onDblClick={() => handleFocus('moon', moon.id, moon.parentPlanetId)}
-              onDblTap={() => handleFocus('moon', moon.id, moon.parentPlanetId)}
-            />
-          ) : (
-            <Circle
-              radius={12 * moon.scale * cameraZoom}
-              fill="#94A3B8"
-              onClick={() => handleSelect('moon', moon.id, moon.parentPlanetId)}
-              onTap={() => handleSelect('moon', moon.id, moon.parentPlanetId)}
-              onDblClick={() => handleFocus('moon', moon.id, moon.parentPlanetId)}
-              onDblTap={() => handleFocus('moon', moon.id, moon.parentPlanetId)}
-            />
-          )}
-          {isSelected && (
-            <Ring
-              innerRadius={14 * moon.scale * cameraZoom}
-              outerRadius={16 * moon.scale * cameraZoom}
-              fill="#3B82F6"
-            />
-          )}
-        </Group>
-      </Group>
-    );
-  };
-
-  const renderStation = (station: Station, planetX: number, planetY: number) => {
-    const loadedImage = images.get(station.sprite);
-    const isSelected = selection?.type === 'station' && selection.id === station.id;
-
-    const orbitAngle = getAngle(station.id, station.orbitAngle);
-    const angle = (orbitAngle * Math.PI) / 180;
-    const x = planetX + Math.cos(angle) * station.orbitDistance * cameraZoom;
-    const y = planetY + Math.sin(angle) * station.orbitDistance * cameraZoom;
-
-    return (
-      <Group key={station.id}>
-        {showOrbits && (
-          <Ring
-            x={planetX}
-            y={planetY}
-            innerRadius={station.orbitDistance * cameraZoom - 0.5}
-            outerRadius={station.orbitDistance * cameraZoom + 0.5}
-            fill="rgba(234, 179, 8, 0.2)"
-          />
-        )}
-        <Group x={x} y={y}>
-          {loadedImage?.loaded ? (
-            <KonvaImage
-              image={loadedImage.image}
-              width={20 * station.scale * cameraZoom}
-              height={20 * station.scale * cameraZoom}
-              offsetX={10 * station.scale * cameraZoom}
-              offsetY={10 * station.scale * cameraZoom}
-              rotation={station.rotation}
-              onClick={() => handleSelect('station', station.id, station.parentId)}
-              onTap={() => handleSelect('station', station.id, station.parentId)}
-              onDblClick={() => handleFocus('station', station.id, station.parentId)}
-              onDblTap={() => handleFocus('station', station.id, station.parentId)}
-            />
-          ) : (
-            <Circle
-              radius={8 * station.scale * cameraZoom}
-              fill="#EAB308"
-              onClick={() => handleSelect('station', station.id, station.parentId)}
-              onTap={() => handleSelect('station', station.id, station.parentId)}
-              onDblClick={() => handleFocus('station', station.id, station.parentId)}
-              onDblTap={() => handleFocus('station', station.id, station.parentId)}
-            />
-          )}
-          {isSelected && (
-            <Ring
-              innerRadius={10 * station.scale * cameraZoom}
-              outerRadius={12 * station.scale * cameraZoom}
-              fill="#3B82F6"
-            />
-          )}
-        </Group>
-      </Group>
-    );
-  };
-
-  const renderAsteroid = (asteroid: Asteroid) => {
-    const isSelected = selection?.type === 'asteroid' && selection.id === asteroid.id;
-
-    if (asteroid.orbitDistance) {
+    if (isRingOnly) {
       return (
-        <Group key={asteroid.id}>
+        <Group key={body.id}>
           {showOrbits && (
             <Ring
-              x={centerX}
-              y={centerY}
-              innerRadius={asteroid.orbitDistance * cameraZoom - 3}
-              outerRadius={asteroid.orbitDistance * cameraZoom + 3}
-              fill="rgba(156, 163, 175, 0.15)"
+              x={parentX}
+              y={parentY}
+              innerRadius={body.orbitDistance * cameraZoom - orbitRingWidth}
+              outerRadius={body.orbitDistance * cameraZoom + orbitRingWidth}
+              fill={orbitRingColor}
             />
           )}
           <Ring
-            x={centerX}
-            y={centerY}
-            innerRadius={asteroid.orbitDistance * cameraZoom - 5}
-            outerRadius={asteroid.orbitDistance * cameraZoom + 5}
+            x={parentX}
+            y={parentY}
+            innerRadius={body.orbitDistance * cameraZoom - 5}
+            outerRadius={body.orbitDistance * cameraZoom + 5}
             fill={isSelected ? "rgba(59, 130, 246, 0.3)" : "transparent"}
-            onClick={() => handleSelect('asteroid', asteroid.id)}
-            onTap={() => handleSelect('asteroid', asteroid.id)}
-            onDblClick={() => handleFocus('asteroid', asteroid.id)}
-            onDblTap={() => handleFocus('asteroid', asteroid.id)}
+            onClick={() => handleSelect(body)}
+            onTap={() => handleSelect(body)}
+            onDblClick={() => handleFocus(body)}
+            onDblTap={() => handleFocus(body)}
           />
+          {body.children.map(child => renderBody(child, x, y))}
         </Group>
       );
     }
 
-    return null;
+    const size = baseSize * body.scale * cameraZoom;
+    const halfSize = size / 2;
+
+    return (
+      <Group key={body.id}>
+        {showOrbits && body.orbitDistance > 0 && orbitRingColor && (
+          <Ring
+            x={parentX}
+            y={parentY}
+            innerRadius={body.orbitDistance * cameraZoom - orbitRingWidth}
+            outerRadius={body.orbitDistance * cameraZoom + orbitRingWidth}
+            fill={orbitRingColor}
+          />
+        )}
+
+        <Group x={x} y={y}>
+          {loadedImage?.loaded ? (
+            <KonvaImage
+              image={loadedImage.image}
+              width={size}
+              height={size}
+              offsetX={halfSize}
+              offsetY={halfSize}
+              rotation={body.rotation}
+              onClick={() => handleSelect(body)}
+              onTap={() => handleSelect(body)}
+              onDblClick={() => handleFocus(body)}
+              onDblTap={() => handleFocus(body)}
+            />
+          ) : (
+            <Circle
+              radius={halfSize}
+              fill={fallbackColor}
+              onClick={() => handleSelect(body)}
+              onTap={() => handleSelect(body)}
+              onDblClick={() => handleFocus(body)}
+              onDblTap={() => handleFocus(body)}
+            />
+          )}
+          {isSelected && (
+            <Ring
+              innerRadius={halfSize + 4}
+              outerRadius={halfSize + 8}
+              fill="#3B82F6"
+            />
+          )}
+        </Group>
+
+        {body.children.map(child => renderBody(child, x, y))}
+      </Group>
+    );
   };
 
   return (
@@ -531,13 +404,7 @@ export function Canvas() {
         }}
       >
         <Layer>
-          {system.asteroids.map(renderAsteroid)}
-          {system.stars.map(renderStar)}
-          {system.planets.map((planet) => {
-            const hasParentStar = system.stars.some((s) => s.id === planet.parentStarId);
-            if (!hasParentStar) return null;
-            return renderPlanet(planet);
-          })}
+          {rootBodies.map(body => renderBody(body, centerX, centerY))}
         </Layer>
       </Stage>
     </div>

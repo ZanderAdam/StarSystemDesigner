@@ -15,15 +15,23 @@ import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
 import { Orbit, Play, Pause, ZoomIn, ZoomOut, RotateCcw, RefreshCw } from 'lucide-react';
 import { isLocalMode } from '@/lib/config';
 import { loadSystemFromZip } from '@/lib/zip-loader';
-import { saveSystemToZip, exportSystemAsJson } from '@/lib/zip-saver';
-import { solSystemTemplate } from '@/data';
+import { saveSystemToZip } from '@/lib/zip-saver';
+import { solSystem, solBodies } from '@/data';
 import { useState } from 'react';
+import { SolarSystemSchema, CelestialBodySchema } from '@/types';
+import { z } from 'zod';
+
+const JsonFileSchema = z.object({
+  system: SolarSystemSchema,
+  rootBodies: z.array(CelestialBodySchema),
+});
 
 export function Header() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newSystemName, setNewSystemName] = useState('');
 
   const system = useSystemStore((state) => state.system);
+  const rootBodies = useSystemStore((state) => state.rootBodies);
   const isDirty = useSystemStore((state) => state.isDirty);
   const newSystem = useSystemStore((state) => state.newSystem);
   const loadSystem = useSystemStore((state) => state.loadSystem);
@@ -68,7 +76,7 @@ export function Header() {
         return;
       }
     }
-    loadSystem(solSystemTemplate);
+    loadSystem(solSystem, solBodies);
     if (isLocalMode()) {
       loadSpritesFromApi();
     }
@@ -102,14 +110,21 @@ export function Header() {
     try {
       if (file.name.endsWith('.zip')) {
         // Production mode - load from ZIP
-        const { system: loadedSystem, sprites: loadedSprites } = await loadSystemFromZip(file);
-        loadSystem(loadedSystem);
+        const { system: loadedSystem, rootBodies, sprites: loadedSprites } = await loadSystemFromZip(file);
+        loadSystem(loadedSystem, rootBodies);
         loadSpritesFromZip(loadedSprites);
       } else if (file.name.endsWith('.json')) {
-        // JSON file - just load system
+        // JSON file - load system with new format
         const text = await file.text();
-        const systemData = JSON.parse(text);
-        loadSystem(systemData);
+        const fileData = JSON.parse(text);
+
+        // Validate JSON data
+        const parseResult = JsonFileSchema.safeParse(fileData);
+        if (!parseResult.success) {
+          throw new Error(`Invalid system data: ${parseResult.error.message}`);
+        }
+
+        loadSystem(parseResult.data.system, parseResult.data.rootBodies);
 
         // Load sprites in local mode
         if (isLocalMode()) {
@@ -133,7 +148,7 @@ export function Header() {
         const response = await fetch('/api/systems', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(system),
+          body: JSON.stringify({ system, rootBodies }),
         });
 
         if (!response.ok) {
@@ -146,6 +161,7 @@ export function Header() {
         // Production mode - save as ZIP
         await saveSystemToZip({
           system,
+          rootBodies,
           sprites,
         });
         markClean();
@@ -158,7 +174,8 @@ export function Header() {
   const handleExportJson = () => {
     if (!system) return;
 
-    const json = exportSystemAsJson(system);
+    const exportData = { system, rootBodies };
+    const json = JSON.stringify(exportData, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
