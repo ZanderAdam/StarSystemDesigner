@@ -104,20 +104,20 @@ export function PropertyPanel() {
   const spriteOptions = Array.from(sprites.keys());
 
   return (
-    <Card className="h-full overflow-auto">
+    <Card className="h-full overflow-auto select-none">
       <CardHeader>
         <CardTitle>Properties - {selection.type}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* ID (read-only) */}
         <div className="space-y-2">
-          <Label htmlFor="id">ID</Label>
+          <Label htmlFor="id" className="select-none">ID</Label>
           <Input id="id" value={selectedObject.id} disabled />
         </div>
 
         {/* Name */}
         <div className="space-y-2">
-          <Label htmlFor="name">Name</Label>
+          <Label htmlFor="name" className="select-none">Name</Label>
           <Input
             id="name"
             value={localName}
@@ -128,7 +128,7 @@ export function PropertyPanel() {
 
         {/* Description */}
         <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
+          <Label htmlFor="description" className="select-none">Description</Label>
           <Textarea
             id="description"
             value={localDescription}
@@ -183,7 +183,7 @@ export function PropertyPanel() {
 
         {/* Scale */}
         <div className="space-y-2">
-          <Label htmlFor="scale">Scale</Label>
+          <Label htmlFor="scale" className="select-none">Scale</Label>
           <div className="flex items-center gap-2">
             <Slider
               value={[selectedObject.scale]}
@@ -207,7 +207,7 @@ export function PropertyPanel() {
 
         {/* Rotation */}
         <div className="space-y-2">
-          <Label htmlFor="rotation">Rotation (degrees)</Label>
+          <Label htmlFor="rotation" className="select-none">Rotation (degrees)</Label>
           <Input
             id="rotation"
             type="number"
@@ -218,7 +218,7 @@ export function PropertyPanel() {
 
         {/* Rotation Speed */}
         <div className="space-y-2">
-          <Label htmlFor="rotationSpeed">Rotation Speed</Label>
+          <Label htmlFor="rotationSpeed" className="select-none">Rotation Speed</Label>
           <Input
             id="rotationSpeed"
             type="number"
@@ -231,7 +231,7 @@ export function PropertyPanel() {
         {/* Star-specific: Luminosity */}
         {selection.type === 'star' && selectedObject.luminosity !== undefined && (
           <div className="space-y-2">
-            <Label htmlFor="luminosity">Luminosity</Label>
+            <Label htmlFor="luminosity" className="select-none">Luminosity</Label>
             <Input
               id="luminosity"
               type="number"
@@ -247,7 +247,7 @@ export function PropertyPanel() {
         {(selection.type === 'planet' || selection.type === 'moon' || selection.type === 'station' || selection.type === 'asteroid') && (
           <>
             <div className="space-y-2">
-              <Label htmlFor="orbitDistance">Orbit Distance</Label>
+              <Label htmlFor="orbitDistance" className="select-none">Orbit Distance</Label>
               <div className="flex items-center gap-2">
                 <Slider
                   value={[selectedObject.orbitDistance ?? 0]}
@@ -269,7 +269,7 @@ export function PropertyPanel() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="orbitSpeed">Orbit Speed</Label>
+              <Label htmlFor="orbitSpeed" className="select-none">Orbit Speed</Label>
               <div className="flex items-center gap-2">
                 <Slider
                   value={[selectedObject.orbitSpeed ?? 1]}
@@ -291,7 +291,7 @@ export function PropertyPanel() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="orbitAngle">Orbit Angle (degrees)</Label>
+              <Label htmlFor="orbitAngle" className="select-none">Orbit Angle (degrees)</Label>
               <div className="flex items-center gap-2">
                 <Slider
                   value={[selectedObject.orbitAngle ?? 0]}

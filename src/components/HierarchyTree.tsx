@@ -305,7 +305,7 @@ export function HierarchyTree() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden select-none">
       <div className="border-b p-2">
         <h2 className="text-sm font-semibold">{system.name}</h2>
       </div>
