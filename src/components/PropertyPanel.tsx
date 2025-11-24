@@ -200,7 +200,7 @@ export function PropertyPanel() {
               min={SCALE_MIN}
               value={selectedObject.scale}
               onChange={(e) => handleUpdate('scale', parseFloat(e.target.value) || 1)}
-              className="w-16"
+              className="w-24"
             />
           </div>
         </div>
@@ -263,7 +263,7 @@ export function PropertyPanel() {
                   min={ORBIT_DISTANCE_MIN}
                   value={selectedObject.orbitDistance ?? 0}
                   onChange={(e) => handleUpdate('orbitDistance', parseFloat(e.target.value) || 0)}
-                  className="w-16"
+                  className="w-24"
                 />
               </div>
             </div>
@@ -285,7 +285,7 @@ export function PropertyPanel() {
                   step={ORBIT_SPEED_STEP}
                   value={selectedObject.orbitSpeed ?? 1}
                   onChange={(e) => handleUpdate('orbitSpeed', parseFloat(e.target.value) || 0)}
-                  className="w-16"
+                  className="w-24"
                 />
               </div>
             </div>
@@ -306,7 +306,7 @@ export function PropertyPanel() {
                   type="number"
                   value={selectedObject.orbitAngle ?? 0}
                   onChange={(e) => handleUpdate('orbitAngle', parseFloat(e.target.value) || 0)}
-                  className="w-16"
+                  className="w-24"
                 />
               </div>
             </div>
