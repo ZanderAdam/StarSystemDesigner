@@ -167,9 +167,9 @@ export function Canvas() {
   }, []);
 
   const rootBodies = useSystemStore.getState().rootBodies;
-  const { selection, cameraPosition, cameraZoom: storeZoom, showOrbits, isAnimating, focusTarget } = useUIStore.getState();
+  const { selection, cameraPosition, cameraZoom: storeZoom, showOrbits, focusTarget } = useUIStore.getState();
 
-  // Calculate max orbit distance for auto-fit (memoized)
+  // Calculate max orbit distance for auto-fit
   const autoFitZoom = useMemo(() => {
     const getMaxOrbitDistance = (bodies: CelestialBody[]): number => {
       let max = 0;
@@ -204,15 +204,18 @@ export function Canvas() {
   }, [cameraZoom, setComputedZoom]);
 
   const getAngle = useCallback((id: string, baseAngle: number): number => {
-    if (isAnimating) {
+    if (useUIStore.getState().isAnimating) {
       return anglesRef.current.get(id) ?? baseAngle;
     }
     return baseAngle;
-  }, [isAnimating]);
+  }, []);
 
   // Handle focus target
   useEffect(() => {
-    if (!focusTarget || rootBodies.length === 0) return;
+    if (!focusTarget) return;
+
+    const bodies = useSystemStore.getState().rootBodies;
+    if (bodies.length === 0) return;
 
     const findBody = useSystemStore.getState().findBody;
     const targetBody = findBody(focusTarget.id);
@@ -237,7 +240,48 @@ export function Canvas() {
       x: -pos.x * cameraZoom,
       y: -pos.y * cameraZoom
     });
-  }, [frame, focusTarget, rootBodies, cameraZoom, setCameraPosition, getAngle]);
+  }, [frame, focusTarget, cameraZoom, setCameraPosition, getAngle]);
+
+  const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+    const stage = e.target.getStage();
+    if (!stage) return;
+
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    const { cameraPosition, cameraZoom: currentStoreZoom } = useUIStore.getState();
+    const zoomFactor = e.evt.deltaY > 0 ? 1 / ZOOM_SCALE_FACTOR : ZOOM_SCALE_FACTOR;
+    const newStoreZoom = currentStoreZoom * zoomFactor;
+
+    const oldActualZoom = autoFitZoom * currentStoreZoom;
+    const newActualZoom = autoFitZoom * newStoreZoom;
+
+    const worldX = (pointer.x - cameraPosition.x - centerX) / oldActualZoom;
+    const worldY = (pointer.y - cameraPosition.y - centerY) / oldActualZoom;
+
+    setCameraZoom(newStoreZoom);
+    setCameraPosition({
+      x: pointer.x - centerX - worldX * newActualZoom,
+      y: pointer.y - centerY - worldY * newActualZoom,
+    });
+  }, [autoFitZoom, centerX, centerY, setCameraZoom, setCameraPosition]);
+
+  const handleDragEnd = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    const stage = e.target.getStage();
+    if (stage) {
+      setCameraPosition({ x: stage.x(), y: stage.y() });
+      if (useUIStore.getState().focusTarget) setFocusTarget(null);
+    }
+  }, [setCameraPosition, setFocusTarget]);
+
+  const handleSelect = useCallback((body: CelestialBody) => {
+    select({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
+  }, [select]);
+
+  const handleFocus = useCallback((body: CelestialBody) => {
+    setFocusTarget({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
+  }, [setFocusTarget]);
 
   if (rootBodies.length === 0) {
     return (
@@ -249,46 +293,6 @@ export function Canvas() {
       </div>
     );
   }
-
-  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
-    e.evt.preventDefault();
-    const stage = e.target.getStage();
-    if (!stage) return;
-
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
-
-    const zoomFactor = e.evt.deltaY > 0 ? 1 / ZOOM_SCALE_FACTOR : ZOOM_SCALE_FACTOR;
-    const newStoreZoom = storeZoom * zoomFactor;
-
-    const oldActualZoom = autoFitZoom * storeZoom;
-    const newActualZoom = autoFitZoom * newStoreZoom;
-
-    const worldX = (pointer.x - cameraPosition.x - centerX) / oldActualZoom;
-    const worldY = (pointer.y - cameraPosition.y - centerY) / oldActualZoom;
-
-    setCameraZoom(newStoreZoom);
-    setCameraPosition({
-      x: pointer.x - centerX - worldX * newActualZoom,
-      y: pointer.y - centerY - worldY * newActualZoom,
-    });
-  };
-
-  const handleDragEnd = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const stage = e.target.getStage();
-    if (stage) {
-      setCameraPosition({ x: stage.x(), y: stage.y() });
-      if (focusTarget) setFocusTarget(null);
-    }
-  };
-
-  const handleSelect = (body: CelestialBody) => {
-    select({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
-  };
-
-  const handleFocus = (body: CelestialBody) => {
-    setFocusTarget({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
-  };
 
   // Recursive render function
   const renderBody = (body: CelestialBody, parentX: number, parentY: number): React.ReactNode => {
