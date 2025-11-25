@@ -35,6 +35,15 @@ export function HierarchyTree() {
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastClickRef = useRef<{ type: string; id: string; time: number } | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (clickTimeoutRef.current) {
+        clearTimeout(clickTimeoutRef.current);
+        clickTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // Get stars and asteroids from root
   const stars = useMemo(() =>
     rootBodies.filter(b => b.type === 'star') as StarType[],

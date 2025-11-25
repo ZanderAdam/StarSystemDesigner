@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useSystemStore, useSpriteStore, useUIStore } from '@/stores';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,6 @@ import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { RefreshCw } from 'lucide-react';
 import { isLocalMode } from '@/lib/config';
-import Image from 'next/image';
 
 // Property panel constants
 const SCALE_MIN = 0.1;
@@ -41,30 +40,36 @@ const DESCRIPTION_MAX_LENGTH = 500;
 
 export function PropertyPanel() {
   const system = useSystemStore((state) => state.system);
-  // Subscribe to rootBodies to trigger re-renders when tree updates
-  const rootBodies = useSystemStore((state) => state.rootBodies);
-  const findBody = useSystemStore((state) => state.findBody);
   const updateBody = useSystemStore((state) => state.updateBody);
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  void rootBodies; // Used only to trigger re-renders
 
   const sprites = useSpriteStore((state) => state.sprites);
   const loadSpritesFromApi = useSpriteStore((state) => state.loadSpritesFromApi);
   const selection = useUIStore((state) => state.selection);
 
+  // Subscribe to selected object only (not entire rootBodies) to get live updates
+  const selectedObject = useSystemStore((state) =>
+    selection ? state.findBody(selection.id) : null
+  );
+
   // Local state for text fields to avoid store updates on every keystroke
   const [localName, setLocalName] = useState('');
   const [localDescription, setLocalDescription] = useState('');
+  const [lastSyncedId, setLastSyncedId] = useState<string | null>(null);
 
-  // Get selected object from tree
-  const selectedObject = selection ? findBody(selection.id) : null;
-
-  // Sync local state when selection changes
-  useEffect(() => {
+  // Sync local state when selection ID changes (during render, not in effect)
+  const currentId = selectedObject?.id ?? null;
+  if (currentId !== lastSyncedId) {
     setLocalName(selectedObject?.name ?? '');
     setLocalDescription(selectedObject?.description ?? '');
-  }, [selectedObject?.id, selectedObject?.name, selectedObject?.description]);
+    setLastSyncedId(currentId);
+  }
+
+  const handleUpdate = useCallback((field: string, value: string | number) => {
+    if (!selectedObject) return;
+
+    const updatedBody = { ...selectedObject, [field]: value };
+    updateBody(updatedBody);
+  }, [selectedObject, updateBody]);
 
   if (!selection || !system) {
     return (
@@ -91,13 +96,6 @@ export function PropertyPanel() {
       </Card>
     );
   }
-
-  const handleUpdate = (field: string, value: string | number) => {
-    if (!selectedObject) return;
-
-    const updatedBody = { ...selectedObject, [field]: value };
-    updateBody(updatedBody);
-  };
 
   const spriteUrl = selectedObject.sprite ? sprites.get(selectedObject.sprite) : null;
 
@@ -143,11 +141,10 @@ export function PropertyPanel() {
         <div className="space-y-2">
           {spriteUrl && (
             <div className="flex justify-center rounded border bg-slate-900 p-2">
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={spriteUrl}
                 alt={selectedObject.sprite}
-                width={64}
-                height={64}
                 className="h-16 w-16 object-contain"
               />
             </div>

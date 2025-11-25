@@ -28,7 +28,7 @@ describe('systemStore', () => {
 
   describe('addBody', () => {
     it('should add a planet to a star', () => {
-      const { newSystem, addBody, rootBodies } = useSystemStore.getState();
+      const { newSystem, addBody } = useSystemStore.getState();
       newSystem('Sol');
 
       const planet = createDefaultPlanet('Sol', 'Sol', 1);
@@ -125,7 +125,7 @@ describe('systemStore', () => {
 
   describe('updateBody', () => {
     it('should update body properties', () => {
-      const { newSystem, findBody, updateBody } = useSystemStore.getState();
+      const { newSystem, updateBody } = useSystemStore.getState();
       newSystem('Sol');
 
       const star = useSystemStore.getState().findBody('Sol');
@@ -142,7 +142,7 @@ describe('systemStore', () => {
 
   describe('removeBody', () => {
     it('should remove a planet', () => {
-      const { newSystem, addBody, removeBody, findBody } = useSystemStore.getState();
+      const { newSystem, addBody, removeBody } = useSystemStore.getState();
       newSystem('Sol');
 
       const planet = createDefaultPlanet('Sol', 'Sol', 1);

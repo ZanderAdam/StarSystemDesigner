@@ -61,20 +61,43 @@ export function Canvas() {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [images, setImages] = useState<Map<string, LoadedImage>>(new Map());
 
-  const select = useUIStore.getState().select;
-  const setCameraPosition = useUIStore.getState().setCameraPosition;
-  const setCameraZoom = useUIStore.getState().setCameraZoom;
-  const setComputedZoom = useUIStore.getState().setComputedZoom;
-  const setFocusTarget = useUIStore.getState().setFocusTarget;
+  const selectRef = useRef(useUIStore.getState().select);
+  const setCameraPositionRef = useRef(useUIStore.getState().setCameraPosition);
+  const setCameraZoomRef = useRef(useUIStore.getState().setCameraZoom);
+  const setComputedZoomRef = useRef(useUIStore.getState().setComputedZoom);
+  const setFocusTargetRef = useRef(useUIStore.getState().setFocusTarget);
 
-  // Clear angles when system changes to prevent memory leak
+  const select = selectRef.current;
+  const setCameraPosition = setCameraPositionRef.current;
+  const setCameraZoom = setCameraZoomRef.current;
+  const setComputedZoom = setComputedZoomRef.current;
+  const setFocusTarget = setFocusTargetRef.current;
+
+  // Clear angles when system changes, prune deleted bodies
   useEffect(() => {
+    const collectBodyIds = (bodies: CelestialBody[]): Set<string> => {
+      const ids = new Set<string>();
+      for (const body of bodies) {
+        ids.add(body.id);
+        collectBodyIds(body.children).forEach(id => ids.add(id));
+      }
+      return ids;
+    };
+
     let prevSystemId = useSystemStore.getState().system?.id;
     const unsubscribe = useSystemStore.subscribe((state) => {
       const currentSystemId = state.system?.id;
+
       if (currentSystemId !== prevSystemId) {
         anglesRef.current.clear();
         prevSystemId = currentSystemId;
+      } else {
+        const currentBodyIds = collectBodyIds(state.rootBodies);
+        for (const id of anglesRef.current.keys()) {
+          if (!currentBodyIds.has(id)) {
+            anglesRef.current.delete(id);
+          }
+        }
       }
     });
     return unsubscribe;
@@ -110,6 +133,34 @@ export function Canvas() {
           lastTimeRef.current = time;
         }
 
+        // Handle focus target tracking in the render loop
+        const currentFocusTarget = useUIStore.getState().focusTarget;
+        if (currentFocusTarget && rootBodies.length > 0) {
+          const findBody = useSystemStore.getState().findBody;
+          const targetBody = findBody(currentFocusTarget.id);
+
+          if (targetBody) {
+            const calcPos = (body: CelestialBody): { x: number; y: number } => {
+              if (body.parentId === null) return { x: 0, y: 0 };
+              const parent = findBody(body.parentId);
+              if (!parent) return { x: 0, y: 0 };
+              const parentPos = calcPos(parent);
+              const angle = (anglesRef.current.get(body.id) ?? body.orbitAngle) * Math.PI / 180;
+              return {
+                x: parentPos.x + Math.cos(angle) * body.orbitDistance,
+                y: parentPos.y + Math.sin(angle) * body.orbitDistance
+              };
+            };
+
+            const pos = calcPos(targetBody);
+            const currentZoom = autoFitZoomRef.current * useUIStore.getState().cameraZoom;
+            setCameraPositionRef.current({
+              x: -pos.x * currentZoom,
+              y: -pos.y * currentZoom
+            });
+          }
+        }
+
         setFrame(f => f + 1);
       }
       frameId = requestAnimationFrame(tick);
@@ -137,9 +188,30 @@ export function Canvas() {
 
   // Load sprite images when sprites change
   useEffect(() => {
+    let currentImages = new Map<string, LoadedImage>();
+    let mounted = true;
+
+    const cleanup = () => {
+      currentImages.forEach(({ image }) => {
+        image.onload = null;
+        image.onerror = null;
+        image.src = '';
+      });
+      currentImages.clear();
+    };
+
     const loadImages = () => {
+      cleanup();
+
       const sprites = useSpriteStore.getState().sprites;
       const newImages = new Map<string, LoadedImage>();
+      let thisLoadCount = 0;
+      const thisTotalCount = sprites.size;
+
+      if (thisTotalCount === 0) {
+        if (mounted) setImages(newImages);
+        return;
+      }
 
       for (const [filename, url] of sprites.entries()) {
         const img = new window.Image();
@@ -149,19 +221,30 @@ export function Canvas() {
         newImages.set(filename, loadedImage);
 
         img.onload = () => {
+          if (!mounted) return;
           loadedImage.loaded = true;
-          setImages(new Map(newImages));
+          thisLoadCount++;
+          if (thisLoadCount === thisTotalCount) {
+            setImages(new Map(newImages));
+          }
+        };
+
+        img.onerror = () => {
+          if (!mounted) return;
+          thisLoadCount++;
+          if (thisLoadCount === thisTotalCount) {
+            setImages(new Map(newImages));
+          }
         };
 
         img.src = url;
       }
 
-      setImages(newImages);
+      currentImages = newImages;
     };
 
     loadImages();
 
-    // Subscribe to sprite changes
     let prevSprites = useSpriteStore.getState().sprites;
     const unsubscribe = useSpriteStore.subscribe((state) => {
       if (state.sprites !== prevSprites) {
@@ -170,38 +253,48 @@ export function Canvas() {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      mounted = false;
+      cleanup();
+      unsubscribe();
+    };
   }, []);
 
   const rootBodies = useSystemStore.getState().rootBodies;
   const { selection, cameraPosition, cameraZoom: storeZoom, showOrbits, focusTarget } = useUIStore.getState();
 
-  // Calculate max orbit distance for auto-fit
-  const autoFitZoom = useMemo(() => {
-    const getMaxOrbitDistance = (bodies: CelestialBody[]): number => {
-      let max = 0;
-      for (const body of bodies) {
-        if (body.parentId === null) {
-          max = Math.max(max, body.orbitDistance);
-        }
-        for (const child of body.children) {
-          max = Math.max(max, child.orbitDistance);
-        }
-      }
-      return max;
-    };
+  // Stable autoFitZoom calculation using ref to prevent callback churn
+  const autoFitZoomRef = useRef(1);
 
-    if (rootBodies.length > 0 && dimensions.width > 0) {
-      const maxDistance = getMaxOrbitDistance(rootBodies);
-      if (maxDistance > 0) {
-        const availableSize = Math.min(dimensions.width, dimensions.height) - CANVAS_PADDING * 2;
-        const requiredSize = maxDistance * 2;
-        return Math.min(MAX_AUTO_FIT_ZOOM, availableSize / requiredSize);
+  const getMaxOrbitDistance = (bodies: CelestialBody[]): number => {
+    let max = 0;
+    for (const body of bodies) {
+      if (body.parentId === null) {
+        max = Math.max(max, body.orbitDistance);
+      }
+      for (const child of body.children) {
+        max = Math.max(max, child.orbitDistance);
       }
     }
-    return 1;
-  }, [rootBodies, dimensions.width, dimensions.height]);
+    return max;
+  };
 
+  let newAutoFitZoom = 1;
+  if (rootBodies.length > 0 && dimensions.width > 0) {
+    const maxDistance = getMaxOrbitDistance(rootBodies);
+    if (maxDistance > 0) {
+      const availableSize = Math.min(dimensions.width, dimensions.height) - CANVAS_PADDING * 2;
+      const requiredSize = maxDistance * 2;
+      newAutoFitZoom = Math.min(MAX_AUTO_FIT_ZOOM, availableSize / requiredSize);
+    }
+  }
+
+  // Only update ref when value actually changes (prevents callback churn)
+  if (autoFitZoomRef.current !== newAutoFitZoom) {
+    autoFitZoomRef.current = newAutoFitZoom;
+  }
+
+  const autoFitZoom = autoFitZoomRef.current;
   const cameraZoom = autoFitZoom * storeZoom;
   const centerX = dimensions.width / 2;
   const centerY = dimensions.height / 2;
@@ -216,52 +309,6 @@ export function Canvas() {
     }
     return baseAngle;
   }, []);
-
-  // Handle focus target
-  useEffect(() => {
-    if (!focusTarget) {
-      lastFocusTargetRef.current = null;
-      // Sync store with stage position when focus ends
-      if (stageRef.current) {
-        setCameraPosition({
-          x: stageRef.current.x(),
-          y: stageRef.current.y()
-        });
-      }
-      return;
-    }
-
-    const bodies = useSystemStore.getState().rootBodies;
-    if (bodies.length === 0) return;
-
-    const findBody = useSystemStore.getState().findBody;
-    const targetBody = findBody(focusTarget.id);
-    if (!targetBody) return;
-
-    const calcPos = (body: CelestialBody): { x: number; y: number } => {
-      if (body.parentId === null) return { x: 0, y: 0 };
-
-      const parent = findBody(body.parentId);
-      if (!parent) return { x: 0, y: 0 };
-
-      const parentPos = calcPos(parent);
-      const angle = (getAngle(body.id, body.orbitAngle) * Math.PI) / 180;
-      return {
-        x: parentPos.x + Math.cos(angle) * body.orbitDistance,
-        y: parentPos.y + Math.sin(angle) * body.orbitDistance
-      };
-    };
-
-    const pos = calcPos(targetBody);
-    const newPos = {
-      x: -pos.x * cameraZoom,
-      y: -pos.y * cameraZoom
-    };
-    // Only use imperative update when focused - avoids conflict with React props
-    if (stageRef.current) {
-      stageRef.current.position(newPos);
-    }
-  }, [frame, focusTarget, cameraZoom, setCameraPosition, getAngle]);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -366,6 +413,27 @@ export function Canvas() {
     setFocusTarget({ type: body.type, id: body.id, parentId: body.parentId ?? undefined });
   }, [setFocusTarget]);
 
+  const handlersCacheRef = useRef(new Map<string, {
+    onClick: () => void;
+    onTap: () => void;
+    onDblClick: () => void;
+    onDblTap: () => void;
+  }>());
+
+  const createEventHandlers = useCallback((body: CelestialBody) => {
+    const cached = handlersCacheRef.current.get(body.id);
+    if (cached) return cached;
+
+    const handlers = {
+      onClick: () => handleSelect(body),
+      onTap: () => handleSelect(body),
+      onDblClick: () => handleFocus(body),
+      onDblTap: () => handleFocus(body),
+    };
+    handlersCacheRef.current.set(body.id, handlers);
+    return handlers;
+  }, [handleSelect, handleFocus]);
+
   if (rootBodies.length === 0) {
     return (
       <div
@@ -385,6 +453,7 @@ export function Canvas() {
 
     const isSelected = selection?.type === body.type && selection.id === body.id;
     const loadedImage = images.get(body.sprite);
+    const handlers = createEventHandlers(body);
 
     const baseSize = getVisual(body, 'baseSize') as number;
     const fallbackColor = getVisual(body, 'fallbackColor') as string;
@@ -410,10 +479,7 @@ export function Canvas() {
             innerRadius={body.orbitDistance * cameraZoom - 5}
             outerRadius={body.orbitDistance * cameraZoom + 5}
             fill={isSelected ? "rgba(59, 130, 246, 0.3)" : "transparent"}
-            onClick={() => handleSelect(body)}
-            onTap={() => handleSelect(body)}
-            onDblClick={() => handleFocus(body)}
-            onDblTap={() => handleFocus(body)}
+            {...handlers}
           />
           {body.children.map(child => renderBody(child, x, y))}
         </Group>
@@ -444,19 +510,13 @@ export function Canvas() {
               offsetX={halfSize}
               offsetY={halfSize}
               rotation={body.rotation}
-              onClick={() => handleSelect(body)}
-              onTap={() => handleSelect(body)}
-              onDblClick={() => handleFocus(body)}
-              onDblTap={() => handleFocus(body)}
+              {...handlers}
             />
           ) : (
             <Circle
               radius={halfSize}
               fill={fallbackColor}
-              onClick={() => handleSelect(body)}
-              onTap={() => handleSelect(body)}
-              onDblClick={() => handleFocus(body)}
-              onDblTap={() => handleFocus(body)}
+              {...handlers}
             />
           )}
           {isSelected && (
